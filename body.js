@@ -27,11 +27,50 @@ function choice(items, value, onChange, cls = 'chip') {
   return box
 }
 
-// 数字の欄
-function numIn(label, unit, value, step, onChange, attrs = {}) {
-  const inp = h('input', { type: 'number', inputmode: 'decimal', step, class: 'input num-in', 'aria-label': label, value: value ?? '', ...attrs })
-  inp.addEventListener('input', () => onChange(num(inp.value)))
-  return h('label', { class: 'num-field' }, h('span', { class: 'num-label', text: label }), h('span', { class: 'num-row' }, inp, unit ? h('span', { class: 'num-unit', text: unit }) : null))
+// 「−」「＋」で動かす数字の欄。空のときに押すと、前回の値(なければ目安の値)から始める。長押しで速く進む
+function stepper(label, unit, value, { step = 1, start, min = -Infinity, max = Infinity, last }, onChange) {
+  const dec = String(step).includes('.') ? String(step).split('.')[1].length : 0
+  let cur = value ?? null
+  const inp = h('input', { type: 'number', inputmode: 'decimal', step: String(step), class: 'input step-in', 'aria-label': label,
+    placeholder: last != null ? String(last) : '' })
+  const show = () => { inp.value = cur == null ? '' : cur.toFixed(dec) }
+  const set = (x) => { cur = x == null ? null : Math.min(max, Math.max(min, Math.round(x / step) * step)); show(); onChange(cur == null ? null : Number(cur.toFixed(dec))) }
+  inp.addEventListener('input', () => { cur = num(inp.value); onChange(cur) })
+  inp.addEventListener('blur', show)
+  const bump = (d) => set(cur == null ? (last ?? start) : cur + d * step)
+  const btn = (d, text) => {
+    const b = h('button', { type: 'button', class: 'step-btn', 'aria-label': `${label}を${d > 0 ? '上げる' : '下げる'}`, text })
+    let t1 = null, t2 = null
+    const stop = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null }
+    b.addEventListener('pointerdown', (ev) => { ev.preventDefault(); bump(d); t1 = setTimeout(() => { t2 = setInterval(() => bump(d), 70) }, 450) })
+    for (const k of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(k, stop)
+    b.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bump(d) } })
+    return b
+  }
+  show()
+  return h('div', { class: 'step-field' },
+    h('span', { class: 'num-label' }, label, last != null ? h('span', { class: 'step-last', text: ` 前回 ${last}${unit}` }) : null),
+    h('div', { class: 'step-row' }, btn(-1, '−'), inp, h('span', { class: 'num-unit', text: unit }), btn(1, '＋'),
+      h('button', { type: 'button', class: 'step-clear', 'aria-label': `${label}を空にする`, text: '×', onclick: () => set(null) })))
+}
+
+// 開いたり閉じたりできる項目。open を覚えておく(よく使う項目は、次から開いた状態で出す)
+const OPEN_KEY = 'diary.bodyOpen'
+const openSet = () => { try { return new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || '[]')) } catch { return new Set() } }
+const keepOpen = (key, on) => { try { const s2 = openSet(); if (on) s2.add(key); else s2.delete(key); localStorage.setItem(OPEN_KEY, JSON.stringify([...s2])) } catch { /* */ } }
+function sections(items) {
+  // items: [{ key, label, el, filled }]
+  const opened = openSet()
+  const bar = h('div', { class: 'sec-bar', role: 'group', 'aria-label': '入れる項目' })
+  const box = h('div', { class: 'sec-box' })
+  for (const it of items) {
+    const sec = h('div', { class: 'sec' }, it.el)
+    sec.hidden = !(it.filled || opened.has(it.key))
+    const b = h('button', { type: 'button', class: 'sec-chip', 'aria-pressed': sec.hidden ? 'false' : 'true', text: it.label, onclick: () => {
+      sec.hidden = !sec.hidden; b.setAttribute('aria-pressed', sec.hidden ? 'false' : 'true'); keepOpen(it.key, !sec.hidden) } })
+    bar.append(b); box.append(sec)
+  }
+  return h('div', {}, h('p', { class: 'sec-hint', text: '入れたい項目を押すと開きます(よく使う項目は、次から開いて出ます)' }), bar, box)
 }
 
 // 登録した名前から、いくつでも選ぶ(お薬・症状)。「＋」で登録を足す、「登録を直す」で消せる
@@ -67,29 +106,33 @@ function chipList({ names, selected, onChange, onNames, addLabel, placeholder })
   return box
 }
 
-// 体調の入力欄。lists = { meds, symptoms, save(key, list) }
-export function healthForm(value, lists) {
+// 体調の入力欄。lists = { meds, symptoms, save(key, list) }、last = 前回の値
+export function healthForm(value, lists, last = {}) {
   const v = { ...(value || {}) }
   v.meds = [...(v.meds || [])]; v.symptoms = [...(v.symptoms || [])]
   v.bowel = v.bowel ? { ...v.bowel } : {}
   const set = (k) => (x) => { if (x == null || x === '') delete v[k]; else v[k] = x }
+  const has = (...ks) => ks.some(k => v[k] != null)
   const el = h('div', { class: 'hf' },
     h('div', {}, h('span', { class: 'ed-label', text: '気分' }), choice(MOODS, v.mood, set('mood'), 'chip mood')),
-    h('div', { class: 'num-grid' },
-      numIn('体温', '℃', v.temp, '0.1', set('temp'), { min: '30', max: '45' }),
-      numIn('体重', 'kg', v.weight, '0.1', set('weight'), { min: '0' }),
-      numIn('血圧 上', '', v.bpHi, '1', set('bpHi'), { min: '0' }),
-      numIn('血圧 下', '', v.bpLo, '1', set('bpLo'), { min: '0' }),
-      numIn('脈拍', '回/分', v.pulse, '1', set('pulse'), { min: '0' }),
-      numIn('睡眠', '時間', v.sleepH, '0.5', set('sleepH'), { min: '0', max: '24' })),
-    h('div', {}, h('span', { class: 'ed-label', text: '眠りの深さ' }), choice(SLEEP_Q, v.sleepQ, set('sleepQ'))),
-    h('div', {}, h('span', { class: 'ed-label', text: 'お薬(飲んだものを押す)' }),
-      chipList({ names: lists.meds, selected: v.meds, onChange: (l) => { v.meds = l }, onNames: (l) => lists.save('meds', l), addLabel: 'お薬を登録', placeholder: 'お薬の名前を登録' })),
-    h('div', {}, h('span', { class: 'ed-label', text: '気になること' }),
-      chipList({ names: lists.symptoms, selected: v.symptoms, onChange: (l) => { v.symptoms = l }, onNames: (l) => lists.save('symptoms', l), addLabel: '気になることを登録', placeholder: '例: 目のかすみ' })),
     h('div', { class: 'hf-bowel' }, h('span', { class: 'ed-label', text: 'お通じ' }),
-      numIn('回数', '回', v.bowel.count, '1', (x) => { if (x == null) delete v.bowel.count; else v.bowel.count = x }, { min: '0', max: '20' }),
-      choice(BOWEL, v.bowel.type, (x) => { if (x == null) delete v.bowel.type; else v.bowel.type = x })),
+      choice(BOWEL, v.bowel.type, (x) => { if (x == null) delete v.bowel.type; else v.bowel.type = x }),
+      stepper('回数', '回', v.bowel.count, { step: 1, start: 1, min: 0, max: 20 }, (x) => { if (x == null) delete v.bowel.count; else v.bowel.count = x })),
+    sections([
+      { key: 'temp', label: '🌡️ 体温', filled: has('temp'), el: stepper('体温', '℃', v.temp, { step: 0.1, start: 36.5, min: 34, max: 42, last: last.temp }, set('temp')) },
+      { key: 'bp', label: '🩸 血圧・脈拍', filled: has('bpHi', 'bpLo', 'pulse'), el: h('div', { class: 'step-group' },
+        stepper('血圧 上', '', v.bpHi, { step: 1, start: 120, min: 50, max: 250, last: last.bpHi }, set('bpHi')),
+        stepper('血圧 下', '', v.bpLo, { step: 1, start: 80, min: 30, max: 150, last: last.bpLo }, set('bpLo')),
+        stepper('脈拍', '回/分', v.pulse, { step: 1, start: 70, min: 30, max: 200, last: last.pulse }, set('pulse'))) },
+      { key: 'weight', label: '⚖️ 体重', filled: has('weight'), el: stepper('体重', 'kg', v.weight, { step: 0.1, start: 60, min: 20, max: 200, last: last.weight }, set('weight')) },
+      { key: 'sleep', label: '😴 睡眠', filled: has('sleepH', 'sleepQ'), el: h('div', { class: 'step-group' },
+        stepper('睡眠', '時間', v.sleepH, { step: 0.5, start: 7, min: 0, max: 24, last: last.sleepH }, set('sleepH')),
+        h('div', {}, h('span', { class: 'num-label', text: '眠りの深さ' }), choice(SLEEP_Q, v.sleepQ, set('sleepQ')))) },
+      { key: 'meds', label: '💊 お薬', filled: v.meds.length > 0, el: h('div', {}, h('span', { class: 'num-label', text: 'お薬(飲んだものを押す)' }),
+        chipList({ names: lists.meds, selected: v.meds, onChange: (l) => { v.meds = l }, onNames: (l) => lists.save('meds', l), addLabel: 'お薬を登録', placeholder: 'お薬の名前を登録' })) },
+      { key: 'symptoms', label: '🤧 気になること', filled: v.symptoms.length > 0, el: h('div', {}, h('span', { class: 'num-label', text: '気になること' }),
+        chipList({ names: lists.symptoms, selected: v.symptoms, onChange: (l) => { v.symptoms = l }, onNames: (l) => lists.save('symptoms', l), addLabel: '気になることを登録', placeholder: '例: 目のかすみ' })) },
+    ]),
   )
   const get = () => {
     const out = {}
@@ -139,7 +182,7 @@ export const FEEL = [
 ]
 const SKY_BY = Object.fromEntries(SKY.map(x => [x.v, x]))
 
-export function weatherForm(value) {
+export function weatherForm(value, last = {}) {
   const v = { ...(value || {}) }
   v.sky = [...(v.sky || [])]
   const set = (k) => (x) => { if (x == null) delete v[k]; else v[k] = x }
@@ -156,12 +199,14 @@ export function weatherForm(value) {
   paintSky()
   const el = h('div', { class: 'hf' },
     h('div', {}, h('span', { class: 'ed-label', text: '空模様' }), skyBox, order),
-    h('div', { class: 'num-grid' },
-      numIn('いまの気温', '℃', v.temp, '0.1', set('temp')),
-      numIn('湿度', '%', v.hum, '1', set('hum'), { min: '0', max: '100' }),
-      numIn('最高', '℃', v.hi, '0.1', set('hi')),
-      numIn('最低', '℃', v.lo, '0.1', set('lo'))),
-    h('div', {}, h('span', { class: 'ed-label', text: '体感' }), choice(FEEL, v.feel, set('feel'), 'chip mood')))
+    h('div', {}, h('span', { class: 'ed-label', text: '体感' }), choice(FEEL, v.feel, set('feel'), 'chip mood')),
+    stepper('いまの気温', '℃', v.temp, { step: 0.5, start: 20, min: -30, max: 50, last: last.temp }, set('temp')),
+    sections([
+      { key: 'w-hilo', label: '🌡️ 最高・最低', filled: v.hi != null || v.lo != null, el: h('div', { class: 'step-group' },
+        stepper('最高', '℃', v.hi, { step: 0.5, start: last.temp ?? 25, min: -30, max: 50, last: last.hi }, set('hi')),
+        stepper('最低', '℃', v.lo, { step: 0.5, start: last.temp ?? 15, min: -30, max: 50, last: last.lo }, set('lo'))) },
+      { key: 'w-hum', label: '💧 湿度', filled: v.hum != null, el: stepper('湿度', '%', v.hum, { step: 1, start: 50, min: 0, max: 100, last: last.hum }, set('hum')) },
+    ]))
   const get = () => {
     const out = {}
     if (v.sky.length) out.sky = v.sky

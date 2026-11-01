@@ -272,3 +272,24 @@ button, input, textarea { font: inherit; color: inherit; }
 .pl-top .input { flex: 1; min-width: 0; font-weight: 700; }
 .pl-icon { font-size: 20px; }
 .pl-sub { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+
+/* v0.8.1: 体調・天気の短い画面 */
+.step-field { display: flex; flex-direction: column; gap: 4px; }
+.step-row { display: flex; align-items: center; gap: 6px; }
+.step-btn { width: 52px; height: 52px; flex: none; border-radius: 12px; border: 1px solid var(--line2); background: var(--btn-soft); color: var(--btn-ink);
+  font-size: 26px; font-weight: 700; line-height: 1; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.step-btn:active { background: var(--btn); color: #fff; }
+.step-in { width: 100%; min-width: 0; flex: 1; height: 52px; text-align: center; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 0 4px; }
+.step-clear { width: 36px; height: 36px; flex: none; border: 0; background: none; color: var(--muted); font-size: 18px; }
+.step-last { font-weight: 500; color: var(--muted); font-size: 12px; }
+.step-group { display: flex; flex-direction: column; gap: 12px; }
+.sec-hint { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+.sec-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+.sec-chip { min-height: 40px; padding: 0 12px; border-radius: 20px; border: 1px dashed var(--line2); background: var(--surface); font-size: 14px; font-weight: 700; color: var(--muted); }
+.sec-chip[aria-pressed="true"] { border-style: solid; border-color: var(--accent); color: var(--accent); background: var(--btn-soft); }
+.sec-box { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+.sec { padding: 10px; border-radius: 12px; background: var(--bg); }
+.ed-time.compact { gap: 6px; }
+.input.small { height: 40px; font-size: 15px; padding: 0 8px; }
+.textarea.short { min-height: 80px; }
+.more-row { display: flex; flex-wrap: wrap; gap: 4px 16px; }

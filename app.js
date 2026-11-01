@@ -7,7 +7,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.8.0'
+const VERSION = '0.8.1'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -296,7 +296,7 @@ async function card(e) {
       h('span', { class: 'tl-icon', 'aria-hidden': 'true', text: k.icon }),
       h('span', { class: 'tl-label', text: e.label }),
       h('button', { type: 'button', class: 'tl-edit', 'aria-label': `${hm(e.at)} ${e.label} を直す`, text: '直す',
-        onclick: (ev) => { ev.stopPropagation(); openEditor(e.id) } }),
+        onclick: (ev) => { ev.stopPropagation(); openEntry(e) } }),
     ))
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
@@ -331,7 +331,7 @@ async function card(e) {
   return h('li', { class: 'tl-item' },
     h('span', { class: 'tl-time', text: hm(e.at) }),
     h('span', { class: 'tl-dot' + (isMemo ? ' memo' : ''), 'aria-hidden': 'true' }),
-    h('div', { class: 'tl-card', onclick: () => openEditor(e.id) }, body),
+    h('div', { class: 'tl-card', onclick: () => openEntry(e) }, body),
   )
 }
 
@@ -354,7 +354,7 @@ function buildButtons() {
 let toastTimer = null
 // 体調・天気は入力欄を開く。ほかは押した時刻ですぐ記録
 function pressButton(b) {
-  if (b.form === 'health' || b.form === 'weather') { closeMovePick(); openEditor(null, { kind: b.kind }) }
+  if (b.form === 'health' || b.form === 'weather') { closeMovePick(); openBodySheet(b, null) }
   else quickRecord(b)
 }
 async function quickRecord(b) {
@@ -423,6 +423,80 @@ function showToast(text, actions = []) {
   t.hidden = false
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { t.hidden = true }, 6000)
+}
+
+// ---------- 体調・天気の短い画面 ----------
+// カードを押したとき: 体調・天気の記録は短い画面、それ以外は書く・直す画面
+function openEntry(e) {
+  const k = kindInfo(e.kind) || {}
+  if ((k.form === 'health' && e.health !== undefined) || (k.form === 'weather' && e.weather !== undefined)) openBodySheet(k, e.id)
+  else if ((k.form === 'health' || k.form === 'weather') && !e.text && !photosOf(e).length && !audiosOf(e).length) openBodySheet(k, e.id)
+  else openEditor(e.id)
+}
+// 前回の値(数字の「−」「＋」の出発点にする。いま直している記録は除く)
+async function lastValues(exceptId) {
+  const out = { health: {}, weather: {} }
+  const all = (await allEntries()).filter(e => e.id !== exceptId).reverse()
+  for (const e of all) {
+    for (const k of ['temp', 'weight', 'bpHi', 'bpLo', 'pulse', 'sleepH']) if (e.health && e.health[k] != null && out.health[k] == null) out.health[k] = e.health[k]
+    for (const k of ['temp', 'hi', 'lo', 'hum']) if (e.weather && e.weather[k] != null && out.weather[k] == null) out.weather[k] = e.weather[k]
+  }
+  return out
+}
+async function openBodySheet(b, id) {
+  const editing = id ? await getEntry(id) : null
+  const isH = b.form === 'health'
+  const last = await lastValues(id)
+  const form = isH ? healthForm(editing && editing.health, LISTS, last.health) : weatherForm(editing && editing.weather, last.weather)
+  const now = new Date()
+  const dayIn = h('input', { type: 'date', class: 'input small', value: editing ? editing.day : dayOf(now), 'aria-label': '日付' })
+  const timeIn = h('input', { type: 'time', class: 'input small', value: editing ? editing.at.slice(11, 16) : `${pad(now.getHours())}:${pad(now.getMinutes())}`, 'aria-label': '時刻' })
+  let timeTouched = false
+  dayIn.addEventListener('change', () => { timeTouched = true }); timeIn.addEventListener('change', () => { timeTouched = true })
+  const ta = h('textarea', { class: 'input textarea short', rows: '3', placeholder: 'ひとこと(なくてもよい)', 'aria-label': 'ひとこと' })
+  ta.value = editing ? textOf(editing) : ''
+  const taBox = h('div', {}, h('span', { class: 'ed-label', text: 'ひとこと' }), ta)
+  taBox.hidden = !ta.value
+  const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite' })
+  const sheet = $('#sheet')
+  const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+  const save = async () => {
+    const data = form.get()
+    if (!data && !ta.value.trim()) { msg.textContent = isH ? '気分やお通じなど、どれか1つ入れてください' : '空模様や気温など、どれか1つ入れてください'; return null }
+    const ts = stamp(new Date())
+    const useNow = !editing && !timeTouched
+    const t = useNow ? hmsOf(new Date()) : `${timeIn.value || '00:00'}:${editing && !timeTouched ? editing.at.slice(17, 19) : '00'}`
+    const day = useNow ? dayOf(new Date()) : (dayIn.value || today)
+    const e = { ...(editing || { photos: [], created_at: ts }), id: editing ? editing.id : newId(), at: `${day}T${t}`, day, kind: b.kind, label: editing ? editing.label : b.label, icon: editing ? editing.icon : b.icon, text: ta.value.trim(), updated_at: ts }
+    delete e.health; delete e.weather
+    if (data) e[isH ? 'health' : 'weather'] = data
+    await putEntry(e)
+    close()
+    await render()
+    showToast(editing ? '直しました' : `${hm(e.at)} 「${e.label}」を記録しました`)
+    return e
+  }
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': b.label },
+    h('div', { class: 'sheet-top' },
+      h('h2', {}, h('span', { 'aria-hidden': 'true', text: `${b.icon} ` }), editing ? `${b.label}を直す` : b.label),
+      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
+    h('div', { class: 'sheet-body' },
+      h('div', { class: 'ed-time compact' }, dayIn, timeIn, h('span', { class: 'hint', text: editing ? '' : '(そのままなら、いまの時刻)' })),
+      form.el,
+      taBox,
+      h('div', { class: 'more-row' },
+        taBox.hidden ? h('button', { type: 'button', class: 'link-btn small', text: '＋ ひとこと書く', onclick: (ev) => { taBox.hidden = false; ev.currentTarget.remove(); ta.focus() } }) : null,
+        h('button', { type: 'button', class: 'link-btn small', text: '写真・場所なども付ける', onclick: async () => { const e = await save(); if (e) openEditor(e.id) } })),
+      isH ? h('p', { class: 'hint', text: '数字をそのまま残すだけで、病気かどうかの判断はしません。気になるときはお医者さんへ。' }) : null,
+      msg),
+    h('div', { class: 'sheet-foot' },
+      editing ? h('button', { type: 'button', class: 'danger-btn', text: '消す', onclick: async () => {
+        if (!confirm(`${hm(editing.at)} の「${editing.label}」を消しますか?`)) return
+        await deleteEntry(editing.id); close(); render() } }) : null,
+      h('button', { type: 'button', class: 'primary-btn', text: editing ? '保存する' : '記録する', onclick: save })),
+  ))
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
 }
 
 // ---------- 書く・直す(画面案の「記録を足す」) ----------
@@ -505,8 +579,9 @@ async function openEditor(id, preset = {}) {
   paintPlace()
 
   // 体調・お通じ・天気
-  const hf = healthForm(editing && editing.health, LISTS)
-  const wf = weatherForm(editing && editing.weather)
+  const last = await lastValues(editing && editing.id)
+  const hf = healthForm(editing && editing.health, LISTS, last.health)
+  const wf = weatherForm(editing && editing.weather, last.weather)
   let bowel = editing && editing.bowel ? { ...editing.bowel } : {}
   const secHealth = h('div', { class: 'ed-sec' }, h('span', { class: 'ed-label', text: '体調(入れたものだけ記録します)' }), hf.el,
     h('p', { class: 'hint', text: '数字をそのまま残すだけで、病気かどうかの判断はしません。気になるときはお医者さんへ。' }))
