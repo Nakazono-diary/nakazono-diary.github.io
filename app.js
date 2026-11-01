@@ -7,7 +7,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.9.0'
+const VERSION = '0.10.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -156,6 +156,34 @@ const MOVES = [
 const MOVE_BY = Object.fromEntries(MOVES.map(m => [m.key, m]))
 const movesOf = (e) => (Array.isArray(e.moves) ? e.moves.filter(k => MOVE_BY[k]) : [])
 const movesText = (keys) => keys.map(k => `${MOVE_BY[k].icon} ${MOVE_BY[k].label}`).join(' → ')
+// 乗りかえ(移動手段ごとの時刻)。legs = [{ mode, at }]。それぞれ次の乗りかえ(なければ移動の終わり・いま)まで
+const legsOf = (e) => (Array.isArray(e.legs) ? e.legs.filter(l => l && MOVE_BY[l.mode] && typeof l.at === 'string') : [])
+function legSpans(e, now = new Date()) {
+  const legs = legsOf(e)
+  return legs.map((l, i) => {
+    const to = i + 1 < legs.length ? legs[i + 1].at : (e.end || null)
+    return { mode: l.mode, at: l.at, to, min: durMin(l.at, to || now), live: !to }
+  })
+}
+const legsText = (e) => legSpans(e).map(x => `${MOVE_BY[x.mode].icon} ${MOVE_BY[x.mode].label} ${fmtDur(x.min)}${x.live ? '(いま)' : ''}`).join(' → ')
+// 乗りかえの記録(移動手段の並びも合わせる)
+async function addLeg(id, mode) {
+  const cur = await getEntry(id)
+  if (!cur) return
+  const legs = legsOf(cur)
+  if (legs.length && legs[legs.length - 1].mode === mode) return
+  const at = legs.length ? stamp(new Date()) : cur.at   // 1本目は出発の時刻から
+  const next = [...legs, { mode, at }]
+  await putEntry({ ...cur, legs: next, moves: next.map(l => l.mode), updated_at: stamp(new Date()) })
+  await render()
+  showToast(legs.length ? `${hm(at)} ${MOVE_BY[mode].icon} ${MOVE_BY[mode].label}に乗りかえました` : `${MOVE_BY[mode].icon} ${MOVE_BY[mode].label}で移動中`)
+}
+// 移動手段を1つ選ぶ(押した直後の欄・帯)
+function modeRow(current, onPick, cls = 'mode-row') {
+  return h('div', { class: cls, role: 'group', 'aria-label': '移動手段' },
+    ...MOVES.map(m => h('button', { type: 'button', class: 'mode', 'aria-pressed': m.key === current ? 'true' : 'false', title: m.label,
+      onclick: () => onPick(m.key) }, h('span', { 'aria-hidden': 'true', text: m.icon }), h('span', { class: 'mode-label', text: m.label }))))
+}
 
 // 移動手段のボタン群(押すと足す/外す。押した順に並ぶ)
 function movePicker(selected, onChange) {
@@ -314,12 +342,31 @@ async function renderOngoing() {
   const now = new Date()
   box.replaceChildren(...list.map(e => {
     const min = durMin(e.at, now)
-    return h('div', { class: 'og-item' + (min > 12 * 60 ? ' long' : '') },
-      h('span', { class: 'og-icon', 'aria-hidden': 'true', text: e.icon || (kindInfo(e.kind) || {}).icon || '・' }),
-      h('span', { class: 'og-text' }, h('strong', { text: SPAN_NAME[e.kind] || e.label }),
-        ` ${e.day !== dayOf(now) ? '前日 ' : ''}${hm(e.at)}〜(${fmtDur(min)}${min > 12 * 60 ? '・終わり忘れ?' : ''})`),
-      h('button', { type: 'button', class: 'og-end', text: '終わった', onclick: () => finishNow(e) }))
+    const isMove = isMoveEntry(e)
+    const legs = legsOf(e)
+    const curMode = legs.length ? legs[legs.length - 1].mode : null
+    const item = h('div', { class: 'og-item' + (min > 12 * 60 ? ' long' : '') + (isMove ? ' is-move' : '') },
+      h('div', { class: 'og-main' },
+        h('span', { class: 'og-icon', 'aria-hidden': 'true', text: e.icon || (kindInfo(e.kind) || {}).icon || '・' }),
+        h('span', { class: 'og-text' }, h('strong', { text: SPAN_NAME[e.kind] || e.label }),
+          ` ${e.day !== dayOf(now) ? '前日 ' : ''}${hm(e.at)}〜(${fmtDur(min)}${min > 12 * 60 ? '・終わり忘れ?' : ''})`,
+          isMove && legs.length ? h('span', { class: 'og-legs', text: legsText(e) }) : null),
+        h('button', { type: 'button', class: 'og-end', text: '終わった', onclick: () => finishNow(e) })))
+    if (isMove) {
+      const row = modeRow(curMode, (m) => addLeg(e.id, m), 'mode-row og-modes')
+      item.append(h('p', { class: 'og-hint', text: curMode ? '乗りかえたら押す:' : '最初の移動手段は?' }), row)
+      // いま乗っているものが見える位置まで横に送る
+      requestAnimationFrame(() => { const on = row.querySelector('[aria-pressed="true"]'); if (on) row.scrollLeft = Math.max(0, on.offsetLeft - row.offsetLeft - 8) })
+    }
+    return item
   }))
+}
+// 移動の記録(乗りかえを記録できるもの): 長さがあって、押したら移動手段を聞くボタン(出発・退社)か、すでに乗りかえがあるもの
+function isMoveEntry(e) {
+  if (!e.span) return false
+  if (legsOf(e).length) return true
+  const k = BUTTONS.find(b => b.kind === e.kind) || DEFAULT_BUTTONS.find(b => b.kind === e.kind)
+  return !!(k && k.askMove)
 }
 // いま終える
 async function finishNow(e) {
@@ -360,11 +407,16 @@ async function card(e) {
   // この記録で終えたもの(起床 → 睡眠 など)
   for (const x of ENDED.get(e.id) || []) {
     body.append(h('p', { class: 'tl-dur' }, `${x.icon || ''} ${SPAN_NAME[x.kind] || x.label} ${x.day !== e.day ? '前日 ' : ''}${hm(x.at)}〜${hm(x.end)}(${fmtDur(durMin(x.at, x.end))})`))
+    if (legsOf(x).length) body.append(h('p', { class: 'tl-moves', text: legsText(x) }))
   }
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: projectText(e.project) }))
-  if (movesOf(e).length) body.append(h('p', { class: 'tl-moves', text: movesText(movesOf(e)) }))
+  if (legsOf(e).length) {
+    const p = h('p', { class: 'tl-moves' + (e.end ? '' : ' live-legs'), text: legsText(e) })
+    p._entry = e
+    body.append(p)
+  } else if (movesOf(e).length) body.append(h('p', { class: 'tl-moves', text: movesText(movesOf(e)) }))
   for (const line of healthLines(e.health)) body.append(h('p', { class: 'tl-health', text: line }))
   if (e.bowel && (e.bowel.type || e.bowel.count != null)) body.append(h('p', { class: 'tl-health', text: e.kind === 'bowel' ? bowelText(e.bowel).replace('🚽 お通じ', 'かたさ:').replace(/(\d+)回/, '$1回 ・') : bowelText(e.bowel) }))
   if (e.weather) body.append(h('p', { class: 'tl-weather', text: weatherText(e.weather) }))
@@ -480,7 +532,13 @@ function openMovePick(e, b) {
     })
   }
   if (b.askProject) parts.push(h('p', { class: 'mp-label', text: '件名・工程は?' }), projectPicker(null, (pj) => update({ project: pj })))
-  if (b.askMove) parts.push(h('p', { class: 'mp-label', text: '移動手段は?' }), movePicker([], (keys) => update({ moves: [...keys] })))
+  if (b.askMove && b.span) {
+    // 長さのある移動: 最初の移動手段を1つ選ぶ(乗りかえは下の帯から)
+    const row = h('div', {})
+    const paintRow = (cur) => row.replaceChildren(modeRow(cur, async (m) => { await update({ legs: [{ mode: m, at: e.at }], moves: [m] }); paintRow(m) }))
+    paintRow(null)
+    parts.push(h('p', { class: 'mp-label', text: '最初の移動手段は?(乗りかえたら、下の帯で押す)' }), row)
+  } else if (b.askMove) parts.push(h('p', { class: 'mp-label', text: '移動手段は?' }), movePicker([], (keys) => update({ moves: [...keys] })))
   if (b.form === 'bowel') parts.push(h('p', { class: 'mp-label', text: 'かたさは?' }), bowelPicker(null, (bw) => update({ bowel: bw })))
   box.replaceChildren(
     h('div', { class: 'mp-top' }, h('strong', { text: `「${e.label}」` }),
@@ -586,6 +644,7 @@ async function openEditor(id, preset = {}) {
     text: editing ? textOf(editing) : (saved && saved.text) || '',
     photos: editing ? [...photosOf(editing)] : [],
     moves: editing ? [...movesOf(editing)] : [],
+    legs: editing ? legsOf(editing).map(l => ({ ...l })) : [],
     project: editing && editing.project ? { ...editing.project } : null,
     audios: editing ? [...audiosOf(editing)] : [],
     loc: editing && editing.loc ? { ...editing.loc } : null,
@@ -635,6 +694,27 @@ async function openEditor(id, preset = {}) {
     const list = BUTTONS.filter(b => b.tab === t.key)
     if (list.length) kindBox.append(h('p', { class: 'kind-tab', text: t.label }), h('div', { class: 'kinds' }, ...list.map(kindBtn)))
   }
+
+  // 乗りかえ(長さのある移動の記録は、移動手段ごとの時刻を直せる)
+  const legsMode = !!(editing && editing.span && (legsOf(editing).length || ((kindInfo(editing.kind) || {}).askMove)))
+  const legsBox = h('div', { class: 'legs-ed' })
+  const paintLegs = () => {
+    const rows = st.legs.map((l, i) => {
+      const sel = h('select', { class: 'input leg-mode', 'aria-label': `${i + 1}本目の移動手段` }, ...MOVES.map(m => h('option', { value: m.key, text: `${m.icon} ${m.label}` })))
+      sel.value = l.mode
+      sel.addEventListener('change', () => { l.mode = sel.value })
+      const tm = h('input', { type: 'time', class: 'input leg-time', value: l.at.slice(11, 16), 'aria-label': `${i + 1}本目の始まり` })
+      tm.addEventListener('change', () => { l.time = tm.value })
+      return h('div', { class: 'leg-row' }, h('span', { class: 'leg-no', text: `${i + 1}` }), sel, tm,
+        h('button', { type: 'button', class: 'bs-op del', 'aria-label': `${i + 1}本目を消す`, text: '×', onclick: () => { st.legs.splice(i, 1); paintLegs() } }))
+    })
+    legsBox.replaceChildren(...rows,
+      h('button', { type: 'button', class: 'small-btn', text: '＋ 乗りかえを足す', onclick: () => {
+        const lastAt = st.legs.length ? st.legs[st.legs.length - 1] : null
+        st.legs.push({ mode: lastAt ? lastAt.mode : 'walk', at: lastAt ? lastAt.at : `${dayIn.value}T${timeIn.value}:00`, time: lastAt ? (lastAt.time || lastAt.at.slice(11, 16)) : timeIn.value }); paintLegs() } }),
+      h('p', { class: 'hint', text: 'それぞれ、次の乗りかえ(最後は移動の終わり)までの時間になります。1本目の時刻は、ふつうは出発の時刻です。' }))
+  }
+  paintLegs()
 
   // 場所(登録した場所から選ぶ・いまの場所を測る・名前を付ける)
   const placeBox = h('div', { class: 'ed-place' })
@@ -744,6 +824,16 @@ async function openEditor(id, preset = {}) {
     if (bw) e.bowel = bw
     if (!e.loc) delete e.loc
     if (!e.place) delete e.place
+    if (legsMode) {
+      // 乗りかえの時刻: 始まりの日付で。始まりより前の時刻なら翌日とみなす
+      const legs = st.legs.map(l => {
+        const t2 = l.time || l.at.slice(11, 16)
+        let at = `${day}T${t2}:${l.time ? '00' : l.at.slice(17, 19)}`
+        if (at < e.at.slice(0, 16)) { const d2 = new Date(`${day}T00:00:00`); d2.setDate(d2.getDate() + 1); at = `${dayOf(d2)}T${t2}:00` }
+        return { mode: l.mode, at }
+      }).sort((a, b) => (a.at < b.at ? -1 : 1))
+      if (legs.length) { e.legs = legs; e.moves = legs.map(l => l.mode) } else { delete e.legs; e.moves = [] }
+    }
     // 長さ: 終わりを入れたら長さのある記録にする。新しい記録で、長さのボタンなら続いているものにする
     if (endTimeIn.value) {
       const end = `${endDayIn.value || day}T${endTimeIn.value}:${editing && editing.end && editing.end.slice(0, 16) === `${endDayIn.value || day}T${endTimeIn.value}` ? editing.end.slice(17, 19) : '00'}`
@@ -784,7 +874,7 @@ async function openEditor(id, preset = {}) {
       h('div', {}, h('span', { class: 'ed-label', text: '種類' }), kindBox),
       secHealth, secBowel, secWeather,
       h('div', {}, h('span', { class: 'ed-label', text: '件名・工程(タスク管理の件名リストから)' }), projectPicker(st.project, (pj) => { st.project = pj })),
-      h('div', {}, h('span', { class: 'ed-label', text: '移動手段(いくつでも・押した順)' }), movePicker(st.moves)),
+      h('div', {}, h('span', { class: 'ed-label', text: legsMode ? '移動手段と乗りかえの時刻' : '移動手段(いくつでも・押した順)' }), legsMode ? legsBox : movePicker(st.moves)),
       h('div', {}, h('span', { class: 'ed-label', text: '文章' }), ta,
         h('p', { class: 'hint', text: !editing && saved && saved.text ? '書きかけを戻しました。' : '書きかけは自動で取っておきます。' })),
       h('div', {}, h('span', { class: 'ed-label', text: '写真' }), strip, fileIn, addPhoto,
@@ -882,6 +972,7 @@ async function planImport(file) {
     for (const k of ['health', 'weather', 'bowel']) if (e[k] === undefined) delete e[k]
     if (e.end != null && !(AT_RE.test(e.end) && e.end > e.at)) delete e.end
     if (e.span !== true) delete e.span
+    if (e.legs != null) { const lg = Array.isArray(e.legs) ? e.legs.filter(l => l && MOVE_BY[l.mode] && AT_RE.test(l.at || '')).map(l => ({ mode: l.mode, at: l.at })) : []; if (lg.length) e.legs = lg; else delete e.legs }
     const now = await getEntry(e.id)
     if (!now) plan.add.push(e)
     else if ((e.updated_at || e.at) > (now.updated_at || now.at)) plan.replace.push(e)
@@ -1091,6 +1182,96 @@ function openBackup() {
   document.body.classList.add('no-scroll')
 }
 
+// ---------- 統計(移動手段・睡眠・食事) ----------
+const PERIODS = [{ key: 'week', label: '今週' }, { key: 'month', label: '今月' }, { key: 'year', label: '今年' }, { key: 'all', label: '全部' }]
+function periodStart(key) {
+  const d = new Date(); d.setHours(0, 0, 0, 0)
+  if (key === 'week') { d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dayOf(d) }   // 月曜から
+  if (key === 'month') return `${dayOf(d).slice(0, 8)}01`
+  if (key === 'year') return `${dayOf(d).slice(0, 4)}-01-01`
+  return '0000-00-00'
+}
+const STATS_KEY = 'diary.statsPeriod'
+async function openStats() {
+  const sheet = $('#sheet')
+  const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+  const all = await allEntries()
+  let period = (() => { try { return localStorage.getItem(STATS_KEY) || 'month' } catch { return 'month' } })()
+  const body = h('div', { class: 'sheet-body' })
+  const bars = (rows, unit = 'min') => {
+    const max = Math.max(1, ...rows.map(r => r.value))
+    return h('div', { class: 'st-bars' }, ...rows.map(r => h('div', { class: 'st-row' },
+      h('div', { class: 'st-name' }, h('span', { 'aria-hidden': 'true', text: r.icon || '' }), ` ${r.label}`),
+      h('div', { class: 'st-track' }, (() => { const f = h('div', { class: 'st-fill' }); f.style.width = `${Math.max(2, r.value / max * 100)}%`; return f })()),
+      h('div', { class: 'st-num' }, h('strong', { text: unit === 'min' ? fmtDur(r.value) : String(r.value) }), r.sub ? h('span', { class: 'st-sub', text: r.sub }) : null))))
+  }
+  const hmAvg = (list) => {   // 時刻の平均(夜またぎを考えて、正午を基準にする)
+    if (!list.length) return '-'
+    const mins = list.map(t => { let m = Number(t.slice(11, 13)) * 60 + Number(t.slice(14, 16)); if (m < 12 * 60) m += 24 * 60; return m })
+    const a = Math.round(mins.reduce((x, y) => x + y, 0) / mins.length) % (24 * 60)
+    return `${pad(Math.floor(a / 60))}:${pad(a % 60)}`
+  }
+  const paint = () => {
+    const from = periodStart(period)
+    const inP = (day) => day >= from && day <= today
+    // 移動手段
+    const byMode = new Map()
+    let untimed = 0
+    for (const e of all) {
+      const spans = legSpans(e).filter(x => !x.live && inP(x.at.slice(0, 10)))
+      for (const x of spans) { const r = byMode.get(x.mode) || { min: 0, n: 0 }; r.min += x.min; r.n++; byMode.set(x.mode, r) }
+      if (!legsOf(e).length && movesOf(e).length && inP(e.day)) untimed += movesOf(e).length
+    }
+    const modeRows = MOVES.filter(m => byMode.has(m.key)).map(m => { const r = byMode.get(m.key); return { icon: m.icon, label: m.label, value: Math.round(r.min), sub: `${r.n}回・平均 ${fmtDur(r.min / r.n)}` } })
+      .sort((a, b) => b.value - a.value)
+    // 通勤(出発 → 出社)
+    const byId = new Map(all.map(e => [e.id, e]))
+    const commutes = all.filter(e => e.span && e.end && e.end_by && (byId.get(e.end_by) || {}).kind === 'arrive' && inP(e.day))
+    const commuteAvg = commutes.length ? commutes.reduce((a, e) => a + durMin(e.at, e.end), 0) / commutes.length : 0
+    // 睡眠(起きた日で数える)
+    const sleeps = all.filter(e => e.kind === 'sleep' && e.span && e.end && inP(e.end.slice(0, 10)))
+    const sleepMins = sleeps.map(e => durMin(e.at, e.end))
+    const sleepAvg = sleepMins.length ? sleepMins.reduce((a, b) => a + b, 0) / sleepMins.length : 0
+    const recent = [...sleeps].sort((a, b) => (a.end < b.end ? 1 : -1)).slice(0, 7).reverse()
+    // 食事
+    const meals = all.filter(e => e.kind === 'meal' && e.span && e.end && inP(e.day))
+    const mealMins = meals.map(e => durMin(e.at, e.end))
+    const mealAvg = mealMins.length ? mealMins.reduce((a, b) => a + b, 0) / mealMins.length : 0
+    const mealDays = new Set(meals.map(e => e.day)).size
+    const slot = (e) => { const hh = Number(e.at.slice(11, 13)); return hh < 10 ? '朝' : hh < 15 ? '昼' : hh < 18 ? 'おやつ' : '夜' }
+    const slots = ['朝', '昼', 'おやつ', '夜'].map(sname => { const l = meals.filter(e => slot(e) === sname); return { label: sname, n: l.length, avg: l.length ? l.reduce((a, e) => a + durMin(e.at, e.end), 0) / l.length : 0 } })
+
+    body.replaceChildren(
+      h('div', { class: 'st-periods', role: 'tablist' }, ...PERIODS.map(p => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': p.key === period ? 'true' : 'false', text: p.label,
+        onclick: () => { period = p.key; try { localStorage.setItem(STATS_KEY, period) } catch { /* */ } paint() } }))),
+      h('section', { class: 'st-card' }, h('h3', { text: '🚃 移動手段' }),
+        modeRows.length ? bars(modeRows) : h('p', { class: 'muted', text: 'まだ時刻のある移動がありません。出発のあと、乗りかえるたびに下の帯の移動手段を押すと、ここに集まります。' }),
+        commutes.length ? h('p', { class: 'st-line', text: `🏢 通勤(出発 → 出社): 平均 ${fmtDur(commuteAvg)}(${commutes.length}回)` }) : null,
+        untimed ? h('p', { class: 'hint', text: `時刻のない移動手段の記録が ${untimed}件あります(v0.9 より前の分。回数だけで、時間には入っていません)。` }) : null),
+      h('section', { class: 'st-card' }, h('h3', { text: '🌙 睡眠' }),
+        sleeps.length ? h('div', {},
+          h('p', { class: 'st-big', text: `平均 ${fmtDur(sleepAvg)}` }),
+          h('p', { class: 'st-line', text: `${sleeps.length}晩 ・ 寝た時刻の平均 ${hmAvg(sleeps.map(e => e.at))} ・ 起きた時刻の平均 ${hmAvg(sleeps.map(e => e.end))}` }),
+          h('p', { class: 'st-line', text: `いちばん長い ${fmtDur(Math.max(...sleepMins))} ・ いちばん短い ${fmtDur(Math.min(...sleepMins))}` }),
+          h('p', { class: 'st-sub2', text: '最近の睡眠' }),
+          bars(recent.map(e => ({ icon: '', label: `${Number(e.end.slice(5, 7))}/${Number(e.end.slice(8, 10))}`, value: Math.round(durMin(e.at, e.end)), sub: `${hm(e.at)}〜${hm(e.end)}` }))))
+          : h('p', { class: 'muted', text: 'まだ睡眠の記録がありません。寝るときに「就寝」、起きたら「起床」を押すと、ここに集まります。' })),
+      h('section', { class: 'st-card' }, h('h3', { text: '🍽️ 食事' }),
+        meals.length ? h('div', {},
+          h('p', { class: 'st-big', text: `1回 平均 ${fmtDur(mealAvg)}` }),
+          h('p', { class: 'st-line', text: `${meals.length}回(${mealDays}日・1日あたり ${(meals.length / Math.max(1, mealDays)).toFixed(1)}回)` }),
+          bars(slots.filter(x => x.n).map(x => ({ icon: '', label: x.label, value: Math.round(x.avg), sub: `${x.n}回の平均` }))))
+          : h('p', { class: 'muted', text: 'まだ終わりまで記録した食事がありません。食べ始めに「食事」、食べ終わったらもう一度「食事」(か「終わった」)を押すと、ここに集まります。' })),
+      h('p', { class: 'hint', text: '仕事の時間はタスク管理で見るので、ここには入れていません。集計はスマホの中だけで計算しています。' }))
+  }
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '統計' },
+    h('div', { class: 'sheet-top' }, h('h2', { text: '統計' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
+    body))
+  paint()
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+}
+
 // ---------- 場所の一覧(名前・住所・範囲を直す、消す、いまの場所を登録) ----------
 async function openPlaces() {
   const sheet = $('#sheet')
@@ -1249,12 +1430,13 @@ async function main() {
   $('#record').addEventListener('click', () => { closeMovePick(); openEditor(null, { kind: 'memo', record: true }) })
   $('#btnset').addEventListener('click', () => { closeMovePick(); openButtonSettings() })
   $('#places').addEventListener('click', () => { closeMovePick(); openPlaces() })
+  $('#stats').addEventListener('click', () => { closeMovePick(); openStats() })
   $('#export').addEventListener('click', openBackup)
   $('#version').textContent = `v${VERSION}`
   $('#ios-install').hidden = !(isIOS() && !isStandalone())
   await render()
   askPersist().then(ok => { $('#persist').textContent = ok ? '・ 消されない設定' : '' })
-  setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `続いています ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }) } }, 60 * 1000)
+  setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `続いています ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }); document.querySelectorAll('.live-legs').forEach(el => { if (el._entry) el.textContent = legsText(el._entry) }) } }, 60 * 1000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render() })
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* なくても動く */ })
