@@ -136,3 +136,17 @@ button, input, textarea { font: inherit; color: inherit; }
 .bk-msg.ok { color: #15803d; font-weight: 700; }
 .bk-msg.err { color: var(--danger); font-weight: 700; }
 .bk-card .primary-btn, .bk-card .secondary-btn { flex: none; }
+
+/* 移動手段 */
+.moves { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.move { position: relative; height: 54px; border-radius: 10px; border: 1px solid var(--line2); background: var(--surface); font-size: 13px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0 2px; }
+.move > span:nth-child(2) { font-size: 19px; line-height: 1.1; }
+.move[aria-pressed="true"] { background: #b45309; border-color: #b45309; color: #fff; font-weight: 700; }
+.move-no { position: absolute; top: 3px; left: 5px; font-size: 11px; font-weight: 700; }
+.move-order { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.tl-moves { margin: 6px 0 0; font-size: 14px; font-weight: 600; color: #b45309; }
+@media (prefers-color-scheme: dark) { .tl-moves { color: #fbbf24; } .move[aria-pressed="true"] { background: #d97706; border-color: #d97706; } }
+.movepick { margin-bottom: 10px; padding: 10px; border-radius: 12px; background: color-mix(in srgb, #f59e0b 10%, var(--surface)); border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--line)); }
+.mp-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 14px; }
+.mp-top .link-btn { height: 36px; }

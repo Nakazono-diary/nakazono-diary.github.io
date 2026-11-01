@@ -3,7 +3,7 @@
 import { allEntries, askPersist, deleteEntry, deletePhoto, entriesOfDay, getEntry, getPhoto, putEntry, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 
-const VERSION = '0.3.0'
+const VERSION = '0.4.0'
 
 // ボタン(仕様書 20 の案。あとで本人と最終版を決める)
 const BUTTONS = [
@@ -17,6 +17,40 @@ const BUTTONS = [
   { kind: 'meal', label: '食事', icon: '🍽️' },
 ]
 const MEMO = { kind: 'memo', label: 'メモ', icon: '✏️' }
+// 移動手段(いくつでも、押した順に並ぶ)
+const MOVES = [
+  { key: 'walk', label: '徒歩', icon: '🚶' }, { key: 'run', label: '走る', icon: '🏃' }, { key: 'swim', label: '泳ぐ', icon: '🏊' },
+  { key: 'bike', label: '自転車', icon: '🚲' }, { key: 'moto', label: 'バイク', icon: '🛵' }, { key: 'car', label: '車', icon: '🚗' },
+  { key: 'train', label: '電車', icon: '🚃' }, { key: 'bus', label: 'バス', icon: '🚌' }, { key: 'taxi', label: 'タクシー', icon: '🚕' },
+  { key: 'ship', label: '船', icon: '⛴️' }, { key: 'plane', label: '飛行機', icon: '✈️' }, { key: 'other', label: 'その他', icon: '🧭' },
+]
+const MOVE_BY = Object.fromEntries(MOVES.map(m => [m.key, m]))
+const ASK_MOVE = new Set(['leave', 'out'])   // 押した直後に移動手段を聞くボタン(出発・退社)
+const movesOf = (e) => (Array.isArray(e.moves) ? e.moves.filter(k => MOVE_BY[k]) : [])
+const movesText = (keys) => keys.map(k => `${MOVE_BY[k].icon} ${MOVE_BY[k].label}`).join(' → ')
+
+// 移動手段のボタン群(押すと足す/外す。押した順に並ぶ)
+function movePicker(selected, onChange) {
+  const box = h('div', { class: 'moves', role: 'group', 'aria-label': '移動手段' })
+  const order = h('p', { class: 'move-order' })
+  const paint = () => {
+    box.querySelectorAll('button').forEach(b => {
+      const i = selected.indexOf(b.dataset.key)
+      b.setAttribute('aria-pressed', i >= 0 ? 'true' : 'false')
+      b.querySelector('.move-no').textContent = i >= 0 && selected.length > 1 ? String(i + 1) : ''
+    })
+    order.textContent = selected.length ? movesText(selected) : 'えらんでいません(なくても記録できます)'
+  }
+  for (const m of MOVES) {
+    box.append(h('button', { type: 'button', class: 'move', 'data-key': m.key, onclick: () => {
+      const i = selected.indexOf(m.key)
+      if (i >= 0) selected.splice(i, 1); else selected.push(m.key)
+      paint(); onChange && onChange(selected)
+    } }, h('span', { class: 'move-no', 'aria-hidden': 'true' }), h('span', { 'aria-hidden': 'true', text: m.icon }), m.label))
+  }
+  paint()
+  return h('div', {}, box, order)
+}
 const KINDS = [MEMO, ...BUTTONS]
 const BY_KIND = Object.fromEntries(KINDS.map(b => [b.kind, b]))
 const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土']
@@ -95,6 +129,7 @@ async function card(e) {
       h('button', { type: 'button', class: 'tl-edit', 'aria-label': `${hm(e.at)} ${e.label} を直す`, text: '直す',
         onclick: (ev) => { ev.stopPropagation(); openEditor(e.id) } }),
     ))
+  if (movesOf(e).length) body.append(h('p', { class: 'tl-moves', text: movesText(movesOf(e)) }))
   if (text) {
     const p = h('p', { class: 'tl-text clamp', text })
     body.append(p)
@@ -132,7 +167,7 @@ function buildButtons() {
       h('span', { class: 'rec-icon', 'aria-hidden': 'true', text: b.icon }),
       h('span', { class: 'rec-label', text: b.label })))
   }
-  $('#write').addEventListener('click', () => openEditor(null))
+  $('#write').addEventListener('click', () => { closeMovePick(); openEditor(null) })
 }
 
 let toastTimer = null
@@ -144,10 +179,29 @@ async function quickRecord(b) {
   if (navigator.vibrate) navigator.vibrate(15)
   await render()
   showToast(`${hm(e.at)} 「${b.label}」を記録しました`, [
-    { label: '書き足す', fn: () => openEditor(e.id) },
-    { label: '取り消す', fn: async () => { await deleteEntry(e.id); render() } },
+    { label: '書き足す', fn: () => { closeMovePick(); openEditor(e.id) } },
+    { label: '取り消す', fn: async () => { closeMovePick(); await deleteEntry(e.id); render() } },
   ])
+  if (ASK_MOVE.has(b.kind)) openMovePick(e)
+  else closeMovePick()
 }
+
+// 出発・退社を押した直後: 移動手段をその場で付ける(押すたびに保存)
+function openMovePick(e) {
+  const box = $('#movepick')
+  const sel = []
+  box.replaceChildren(
+    h('div', { class: 'mp-top' }, h('strong', { text: `「${e.label}」の移動手段は?` }),
+      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: closeMovePick })),
+    movePicker(sel, async (keys) => {
+      const now = await getEntry(e.id)
+      if (!now) return
+      await putEntry({ ...now, moves: [...keys], updated_at: stamp(new Date()) })
+      render()
+    }))
+  box.hidden = false
+}
+function closeMovePick() { const box = $('#movepick'); box.hidden = true; box.replaceChildren() }
 
 function showToast(text, actions = []) {
   const t = $('#toast')
@@ -170,6 +224,7 @@ async function openEditor(id) {
     timeIsNow: !editing,
     text: editing ? textOf(editing) : (saved && saved.text) || '',
     photos: editing ? [...photosOf(editing)] : [],
+    moves: editing ? [...movesOf(editing)] : [],
   }
   const added = []      // この窓で足した写真(やめたら消す)
   const removed = []    // この窓で外した写真(保存したら消す)
@@ -247,7 +302,7 @@ async function openEditor(id) {
     const day = st.timeIsNow ? dayOf(new Date()) : (dayIn.value || today)
     const e = {
       ...(editing || {}), id: editing ? editing.id : newId(), at: `${day}T${t}`, day, kind: k.kind, label: k.label,
-      text, photos: st.photos, created_at: editing ? editing.created_at || ts : ts, updated_at: ts,
+      text, photos: st.photos, moves: [...st.moves], created_at: editing ? editing.created_at || ts : ts, updated_at: ts,
     }
     delete e.note
     await putEntry(e)
@@ -272,6 +327,7 @@ async function openEditor(id) {
     h('div', { class: 'sheet-body' },
       h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '時刻' }), dayIn, timeIn, nowTag),
       h('div', {}, h('span', { class: 'ed-label', text: '種類' }), kindBox),
+      h('div', {}, h('span', { class: 'ed-label', text: '移動手段(いくつでも・押した順)' }), movePicker(st.moves)),
       h('div', {}, h('span', { class: 'ed-label', text: '文章' }), ta,
         h('p', { class: 'hint', text: !editing && saved && saved.text ? '書きかけを戻しました。' : '書きかけは自動で取っておきます。' })),
       h('div', {}, h('span', { class: 'ed-label', text: '写真' }), strip, fileIn, addPhoto,
@@ -340,7 +396,7 @@ async function planImport(file) {
   for (const raw of data.entries) {
     if (!raw || typeof raw.id !== 'string' || !AT_RE.test(raw.at || '') || typeof raw.label !== 'string') { plan.bad++; continue }
     const at = raw.at.length === 16 ? raw.at + ':00' : raw.at
-    const e = { ...raw, at, day: at.slice(0, 10), kind: raw.kind || 'memo', text: textOf(raw), photos: Array.isArray(raw.photos) ? raw.photos.filter(p => typeof p === 'string') : [] }
+    const e = { ...raw, at, day: at.slice(0, 10), kind: raw.kind || 'memo', text: textOf(raw), photos: Array.isArray(raw.photos) ? raw.photos.filter(p => typeof p === 'string') : [], moves: Array.isArray(raw.moves) ? raw.moves.filter(k => MOVE_BY[k]) : [] }
     delete e.note
     const now = await getEntry(e.id)
     if (!now) plan.add.push(e)
