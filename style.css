@@ -1,0 +1,67 @@
+/* 色はここにまとめる(青系 = ボタンで記録。のちに 橙 = 位置、緑 = PC作業 を足す) */
+:root {
+  --bg: #f4f6f9; --surface: #ffffff; --text: #1f2937; --muted: #5b6472; --line: #dfe4ec;
+  --accent: #1e3a8a; --btn: #2457c5; --btn-soft: #e8eefb; --danger: #b91c1c;
+  --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f141c; --surface: #18202b; --text: #e5e9f0; --muted: #9aa4b2; --line: #2a3442;
+    --accent: #93b4ff; --btn: #5b8cff; --btn-soft: #1d2a44; --danger: #f87171; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  background: var(--bg); color: var(--text); display: flex; flex-direction: column;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; color: inherit; }
+.muted { color: var(--muted); }
+.spacer { flex: 1; }
+[hidden] { display: none !important; }
+
+.top { position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding: calc(10px + var(--safe-t)) 16px 10px; }
+.top-row { display: flex; align-items: baseline; gap: 10px; }
+.top h1 { margin: 0; font-size: 20px; }
+.small-btn { height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+
+.install { margin: 12px 16px 0; padding: 12px 14px; border-radius: 10px; border: 2px solid #f59e0b;
+  background: color-mix(in srgb, #f59e0b 12%, var(--surface)); font-size: 14px; }
+.install p { margin: 6px 0; }
+.install ol { margin: 6px 0 0; padding-left: 20px; }
+.kbd { display: inline-block; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); font-weight: 600; }
+
+.main { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.empty { color: var(--muted); text-align: center; margin: 40px 8px; line-height: 1.7; }
+.error { color: var(--danger); margin: 8px 0; }
+
+.timeline { list-style: none; margin: 0; padding: 0; position: relative; }
+.timeline::before { content: ""; position: absolute; left: 62px; top: 6px; bottom: 6px; width: 2px; background: var(--line); }
+.tl-item { display: flex; align-items: center; gap: 10px; min-height: 52px; position: relative; }
+.tl-time { width: 48px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 16px; }
+.tl-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--btn); border: 2px solid var(--surface); box-shadow: 0 0 0 2px var(--btn); z-index: 1; flex: none; }
+.tl-body { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line);
+  border-left: 4px solid var(--btn); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.tl-icon { font-size: 18px; }
+.tl-label { font-size: 16px; font-weight: 600; }
+.tl-tag { margin-left: auto; font-size: 11px; color: var(--btn); border: 1px solid currentColor; border-radius: 999px; padding: 0 7px; }
+.tl-del { width: 36px; height: 36px; border: 0; background: none; color: var(--muted); font-size: 18px; border-radius: 50%; flex: none; }
+.tl-del:active { background: var(--btn-soft); }
+
+.toast { position: fixed; left: 12px; right: 12px; bottom: calc(232px + var(--safe-b)); z-index: 5; display: flex; align-items: center; gap: 10px;
+  background: #111827; color: #fff; border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 14px; }
+.toast-text { flex: 1; }
+.toast-undo { border: 1px solid rgba(255,255,255,.4); background: none; color: #fff; border-radius: 8px; height: 34px; padding: 0 12px; font-weight: 700; }
+
+.dock { background: var(--surface); border-top: 1px solid var(--line); padding: 10px 12px calc(8px + var(--safe-b)); }
+.buttons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.rec-btn { height: 84px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--btn) 35%, var(--line)); background: var(--btn-soft);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; touch-action: manipulation; }
+.rec-btn:active { background: var(--btn); color: #fff; transform: scale(.97); }
+.rec-icon { font-size: 26px; line-height: 1; }
+.rec-label { font-size: 15px; font-weight: 700; }
+.foot { text-align: center; font-size: 11px; margin-top: 6px; }
+@media (min-width: 700px) {
+  body { max-width: 640px; margin: 0 auto; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+}

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- よそのサイトから何も読み込まない・どこにも送らない(この住所の中のファイルだけ) -->
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#1e3a8a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="日記">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>日記</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-row">
+      <h1 id="date">…</h1>
+      <span id="count" class="muted"></span>
+      <span class="spacer"></span>
+      <button type="button" id="export" class="small-btn" title="記録を全部ファイルに保存します(バックアップ)">ファイルに書き出す</button>
+    </div>
+  </header>
+
+  <div id="ios-install" class="install" hidden role="note">
+    <strong>ホーム画面に入れてください</strong>
+    <p>iPhone では、ホーム画面に入れずに使うと、しばらく開かないうちに記録が消されることがあります。</p>
+    <ol>
+      <li>下の <span class="kbd">共有</span>(四角から矢印が出ているボタン)を押す</li>
+      <li><span class="kbd">ホーム画面に追加</span> を押す</li>
+      <li>ホーム画面にできた「日記」から開く</li>
+    </ol>
+  </div>
+
+  <main class="main">
+    <div id="error" class="error" hidden></div>
+    <p id="empty" class="empty" hidden>まだ記録がありません。下のボタンを押すと、押した時刻で記録されます。</p>
+    <ol id="timeline" class="timeline" aria-label="今日のタイムライン"></ol>
+  </main>
+
+  <div id="toast" class="toast" hidden role="status">
+    <span class="toast-text"></span>
+    <button type="button" class="toast-undo">取り消す</button>
+  </div>
+
+  <footer class="dock">
+    <div id="buttons" class="buttons" role="group" aria-label="いま記録する"></div>
+    <div class="foot muted"><span id="version"></span> ・ 記録はこのスマホの中だけ <span id="persist"></span></div>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
