@@ -178,3 +178,10 @@ button, input, textarea { font: inherit; color: inherit; }
 .bs-add { width: 100%; }
 .bs-reset { align-self: center; color: var(--muted); font-weight: 500; font-size: 14px; }
 .rec-label.long { font-size: 12px; letter-spacing: -0.02em; }
+
+/* 件名・工程 */
+.pj-pick { display: flex; flex-direction: column; gap: 6px; }
+.pj-sel { width: 100%; }
+.tl-project { margin: 6px 0 0; font-size: 14px; font-weight: 600; color: #0b5f57; }
+@media (prefers-color-scheme: dark) { .tl-project { color: #5eead4; } }
+.mp-label { margin: 8px 0 4px; font-size: 13px; font-weight: 700; color: var(--muted); }

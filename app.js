@@ -3,7 +3,7 @@
 import { allEntries, askPersist, deleteEntry, deletePhoto, entriesOfDay, getEntry, getPhoto, getSetting, putEntry, putSetting, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 
-const VERSION = '0.5.0'
+const VERSION = '0.6.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -17,6 +17,7 @@ const DEFAULT_BUTTONS = [
   { kind: 'home', label: '帰宅', icon: '🏠', tab: 'flow' },
   { kind: 'sleep', label: '就寝', icon: '🌙', tab: 'flow' },
   { kind: 'meal', label: '食事', icon: '🍽️', tab: 'flow' },
+  { kind: 'work', label: '作業', icon: '💻', tab: 'do', askProject: true },
   { kind: 'lunch', label: '昼休み', icon: '🍙', tab: 'do' },
   { kind: 'break', label: '休憩', icon: '☕', tab: 'do' },
   { kind: 'resume', label: '再開', icon: '▶️', tab: 'do' },
@@ -38,15 +39,58 @@ const ICONS = ['⭐', '☀️', '🌙', '🚪', '📍', '🏢', '🌆', '🏠', 
   '🧹', '🧺', '🚗', '⛽', '🔧', '💻', '📞', '✉️', '👪', '👶', '🎂', '🎁', '🏖️', '♨️', '🛏️', '🚿', '🪥', '💤', '📝', '❤️']
 
 let BUTTONS = DEFAULT_BUTTONS.map(b => ({ ...b }))
+// タスク管理から読み込んだ件名リスト(件名名と工程名だけ。一方通行で、こちらからは何も返さない)
+let PROJECTS = { exported_at: '', projects: [] }
+async function loadProjects() {
+  try { const v = await getSetting('projects'); if (v && Array.isArray(v.projects)) PROJECTS = v } catch { /* なくても動く */ }
+}
+const projectText = (pj) => (pj && pj.title ? `🏗️ ${pj.title}${pj.step ? ` ・ ${pj.step}` : ''}` : '')
+
+// 件名と工程を選ぶ欄(2つのプルダウン)。value: { title, step } か null
+function projectPicker(value, onChange) {
+  const cur = value ? { ...value } : { title: '', step: '' }
+  const titles = PROJECTS.projects.map(p => p.title)
+  if (cur.title && !titles.includes(cur.title)) titles.unshift(cur.title)   // 昔の件名(今のリストにない)も残す
+  const tSel = h('select', { class: 'input pj-sel', 'aria-label': '件名' }, h('option', { value: '', text: '件名なし' }), ...titles.map(t => h('option', { value: t, text: t })))
+  const sSel = h('select', { class: 'input pj-sel', 'aria-label': '工程' })
+  const fillSteps = () => {
+    const p = PROJECTS.projects.find(x => x.title === tSel.value)
+    const steps = p ? [...p.steps] : []
+    if (cur.step && !steps.includes(cur.step) && cur.title === tSel.value) steps.unshift(cur.step)
+    sSel.replaceChildren(h('option', { value: '', text: '工程なし' }), ...steps.map(n => h('option', { value: n, text: n })))
+    sSel.disabled = !tSel.value
+  }
+  tSel.value = cur.title; fillSteps(); sSel.value = cur.step || ''
+  const emit = () => onChange(tSel.value ? { title: tSel.value, step: sSel.value || '' } : null)
+  tSel.addEventListener('change', () => { fillSteps(); sSel.value = ''; emit() })
+  sSel.addEventListener('change', emit)
+  const note = PROJECTS.projects.length ? null
+    : h('p', { class: 'hint', text: 'まだ件名リストがありません。タスク管理の「日記用に件名一覧を書き出す」のファイルを、「バックアップ」から読み込んでください。' })
+  return h('div', { class: 'pj-pick' }, tSel, sSel, note)
+}
 async function loadButtons() {
   try {
     const v = await getSetting('buttons')
-    if (v && Array.isArray(v.buttons) && v.buttons.length) BUTTONS = v.buttons
+    if (v && Array.isArray(v.buttons) && v.buttons.length) {
+      BUTTONS = v.buttons
+      // あとから増えた最初のボタンを、いちどだけ足す(本人が消したら、もう足さない)
+      const added = Array.isArray(v.added) ? v.added : []
+      const news = ADDED_LATER.filter(k => !added.includes(k) && !BUTTONS.some(b => b.kind === k))
+      if (news.length || ADDED_LATER.some(k => !added.includes(k))) {
+        for (const k of news) {
+          const d = DEFAULT_BUTTONS.find(b => b.kind === k)
+          const i = BUTTONS.findIndex(b => b.tab === d.tab)
+          BUTTONS.splice(i < 0 ? BUTTONS.length : i, 0, { ...d })
+        }
+        await putSetting('buttons', { ...v, buttons: BUTTONS, added: [...new Set([...added, ...ADDED_LATER])] })
+      }
+    }
   } catch { /* なければ最初のまま */ }
 }
+const ADDED_LATER = ['work']   // v0.6 で増えた最初のボタン
 async function saveButtons(list) {
   BUTTONS = list
-  await putSetting('buttons', { buttons: list, updated_at: stamp(new Date()) })
+  await putSetting('buttons', { buttons: list, added: ADDED_LATER, updated_at: stamp(new Date()) })
 }
 const MEMO = { kind: 'memo', label: 'メモ', icon: '✏️' }
 // 移動手段(いくつでも、押した順に並ぶ)
@@ -161,6 +205,7 @@ async function card(e) {
       h('button', { type: 'button', class: 'tl-edit', 'aria-label': `${hm(e.at)} ${e.label} を直す`, text: '直す',
         onclick: (ev) => { ev.stopPropagation(); openEditor(e.id) } }),
     ))
+  if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: projectText(e.project) }))
   if (movesOf(e).length) body.append(h('p', { class: 'tl-moves', text: movesText(movesOf(e)) }))
   if (text) {
     const p = h('p', { class: 'tl-text clamp', text })
@@ -219,23 +264,26 @@ async function quickRecord(b) {
     { label: '書き足す', fn: () => { closeMovePick(); openEditor(e.id) } },
     { label: '取り消す', fn: async () => { closeMovePick(); await deleteEntry(e.id); render() } },
   ])
-  if (b.askMove) openMovePick(e)
+  if (b.askMove || b.askProject) openMovePick(e, b)
   else closeMovePick()
 }
 
-// 出発・退社を押した直後: 移動手段をその場で付ける(押すたびに保存)
-function openMovePick(e) {
+// ボタンを押した直後: 件名・工程や移動手段を、その場で付ける(選ぶたびに保存)
+function openMovePick(e, b) {
   const box = $('#movepick')
-  const sel = []
+  const update = async (patch) => {
+    const now = await getEntry(e.id)
+    if (!now) return
+    await putEntry({ ...now, ...patch, updated_at: stamp(new Date()) })
+    render()
+  }
+  const parts = []
+  if (b.askProject) parts.push(h('p', { class: 'mp-label', text: '件名・工程は?' }), projectPicker(null, (pj) => update({ project: pj })))
+  if (b.askMove) parts.push(h('p', { class: 'mp-label', text: '移動手段は?' }), movePicker([], (keys) => update({ moves: [...keys] })))
   box.replaceChildren(
-    h('div', { class: 'mp-top' }, h('strong', { text: `「${e.label}」の移動手段は?` }),
+    h('div', { class: 'mp-top' }, h('strong', { text: `「${e.label}」` }),
       h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: closeMovePick })),
-    movePicker(sel, async (keys) => {
-      const now = await getEntry(e.id)
-      if (!now) return
-      await putEntry({ ...now, moves: [...keys], updated_at: stamp(new Date()) })
-      render()
-    }))
+    ...parts)
   box.hidden = false
 }
 function closeMovePick() { const box = $('#movepick'); box.hidden = true; box.replaceChildren() }
@@ -262,6 +310,7 @@ async function openEditor(id) {
     text: editing ? textOf(editing) : (saved && saved.text) || '',
     photos: editing ? [...photosOf(editing)] : [],
     moves: editing ? [...movesOf(editing)] : [],
+    project: editing && editing.project ? { ...editing.project } : null,
   }
   const added = []      // この窓で足した写真(やめたら消す)
   const removed = []    // この窓で外した写真(保存したら消す)
@@ -343,7 +392,7 @@ async function openEditor(id) {
     const day = st.timeIsNow ? dayOf(new Date()) : (dayIn.value || today)
     const e = {
       ...(editing || {}), id: editing ? editing.id : newId(), at: `${day}T${t}`, day, kind: k.kind, label: k.label, icon: k.icon,
-      text, photos: st.photos, moves: [...st.moves], created_at: editing ? editing.created_at || ts : ts, updated_at: ts,
+      text, photos: st.photos, moves: [...st.moves], project: st.project, created_at: editing ? editing.created_at || ts : ts, updated_at: ts,
     }
     delete e.note
     await putEntry(e)
@@ -368,6 +417,7 @@ async function openEditor(id) {
     h('div', { class: 'sheet-body' },
       h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '時刻' }), dayIn, timeIn, nowTag),
       h('div', {}, h('span', { class: 'ed-label', text: '種類' }), kindBox),
+      h('div', {}, h('span', { class: 'ed-label', text: '件名・工程(タスク管理の件名リストから)' }), projectPicker(st.project, (pj) => { st.project = pj })),
       h('div', {}, h('span', { class: 'ed-label', text: '移動手段(いくつでも・押した順)' }), movePicker(st.moves)),
       h('div', {}, h('span', { class: 'ed-label', text: '文章' }), ta,
         h('p', { class: 'hint', text: !editing && saved && saved.text ? '書きかけを戻しました。' : '書きかけは自動で取っておきます。' })),
@@ -431,6 +481,7 @@ function dataURLToBlob(url) {
 async function planImport(file) {
   let data
   try { data = JSON.parse(await file.text()) } catch { throw new Error('日記の書き出しファイルではないようです(読めませんでした)') }
+  if (data && data.app === 'taskapp-names') throw new Error('これはタスク管理の件名リストです。下の「タスク管理の件名リスト」から読み込んでください')
   if (!data || data.app !== 'diary' || !Array.isArray(data.entries)) throw new Error('日記の書き出しファイルではないようです')
   const photos = data.photos && typeof data.photos === 'object' ? data.photos : {}
   const plan = { add: [], replace: [], same: 0, bad: 0, photos: 0, exported_at: data.exported_at || '', buttons: [], buttonsAll: null }
@@ -438,7 +489,7 @@ async function planImport(file) {
   // 変えていれば、ファイルにあってこちらにないボタン(自分で足したボタンなど)だけ足す。
   if (Array.isArray(data.buttons)) {
     const ok = data.buttons.filter(b => b && typeof b.kind === 'string' && typeof b.label === 'string' && b.label.trim() && TABS.some(t => t.key === b.tab))
-      .map(b => ({ kind: b.kind, label: b.label.trim().slice(0, 20), icon: typeof b.icon === 'string' ? b.icon.slice(0, 8) : '⭐', tab: b.tab, ...(b.askMove ? { askMove: true } : {}) }))
+      .map(b => ({ kind: b.kind, label: b.label.trim().slice(0, 20), icon: typeof b.icon === 'string' ? b.icon.slice(0, 8) : '⭐', tab: b.tab, ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}) }))
     const mine = await getSetting('buttons')
     if (!mine && ok.length) {
       if (JSON.stringify(ok) !== JSON.stringify(BUTTONS)) plan.buttonsAll = ok
@@ -449,7 +500,7 @@ async function planImport(file) {
   for (const raw of data.entries) {
     if (!raw || typeof raw.id !== 'string' || !AT_RE.test(raw.at || '') || typeof raw.label !== 'string') { plan.bad++; continue }
     const at = raw.at.length === 16 ? raw.at + ':00' : raw.at
-    const e = { ...raw, at, day: at.slice(0, 10), kind: raw.kind || 'memo', text: textOf(raw), photos: Array.isArray(raw.photos) ? raw.photos.filter(p => typeof p === 'string') : [], moves: Array.isArray(raw.moves) ? raw.moves.filter(k => MOVE_BY[k]) : [] }
+    const e = { ...raw, at, day: at.slice(0, 10), kind: raw.kind || 'memo', text: textOf(raw), photos: Array.isArray(raw.photos) ? raw.photos.filter(p => typeof p === 'string') : [], moves: Array.isArray(raw.moves) ? raw.moves.filter(k => MOVE_BY[k]) : [], project: raw.project && typeof raw.project.title === 'string' ? { title: raw.project.title, step: typeof raw.project.step === 'string' ? raw.project.step : '' } : null }
     delete e.note
     const now = await getEntry(e.id)
     if (!now) plan.add.push(e)
@@ -479,6 +530,37 @@ async function applyImport(plan) {
     await putEntry({ ...e, photos: keep })
   }
   return photos
+}
+
+// タスク管理の件名リスト(kenmei-日付.json)を読み込む。読み込むたびに入れ替える
+function namesCard() {
+  const status = h('p')
+  const msg = h('p', { class: 'bk-msg', 'aria-live': 'polite' })
+  const paint = () => {
+    const n = PROJECTS.projects.length
+    status.textContent = n ? `いま入っている件名: ${n}件(${(PROJECTS.exported_at || '').slice(0, 10)} に書き出したもの)` : 'まだ読み込んでいません。'
+  }
+  const fileIn = h('input', { type: 'file', accept: '.json,application/json', class: 'visually-hidden', id: 'names-in', 'aria-label': '件名リストのファイルを選ぶ' })
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files[0]; fileIn.value = ''
+    if (!f) return
+    msg.className = 'bk-msg'
+    try {
+      const d = JSON.parse(await f.text())
+      if (!d || d.app !== 'taskapp-names' || !Array.isArray(d.projects)) throw new Error('タスク管理の件名リストではないようです')
+      const projects = d.projects.filter(p => p && typeof p.title === 'string' && p.title.trim())
+        .map(p => ({ title: p.title.trim(), steps: Array.isArray(p.steps) ? p.steps.filter(x => typeof x === 'string' && x.trim()) : [] }))
+      PROJECTS = { exported_at: typeof d.exported_at === 'string' ? d.exported_at : '', projects }
+      await putSetting('projects', PROJECTS)
+      paint()
+      msg.className = 'bk-msg ok'; msg.textContent = `件名 ${projects.length}件を読み込みました。`
+    } catch (err) { msg.className = 'bk-msg err'; msg.textContent = err instanceof SyntaxError ? '読めないファイルでした' : (err.message || String(err)) }
+  })
+  paint()
+  return h('section', { class: 'bk-card' },
+    h('h3', { text: 'タスク管理の件名リスト' }),
+    h('p', { text: 'タスク管理の「日記用に件名一覧を書き出す」でできたファイルを読み込むと、「作業」などで件名と工程を選べます。件名と工程の名前だけで、日記からタスク管理へは何も送りません。' }),
+    status, fileIn, h('label', { class: 'secondary-btn as-btn', for: 'names-in', text: '件名リストを読み込む' }), msg)
 }
 
 function openBackup() {
@@ -552,6 +634,7 @@ function openBackup() {
         h('label', { class: 'secondary-btn as-btn', for: 'import-in', text: 'ファイルを選ぶ' }),
         confirmBox),
       msg,
+      namesCard(),
       h('section', { class: 'bk-note' },
         h('h3', { text: '記録はどこにある?' }),
         h('p', { text: 'このスマホのブラウザの中(この住所専用の保存場所)だけにあります。どこにも送っていません。' }),
@@ -585,6 +668,9 @@ function openButtonSettings() {
       same.forEach((b, i) => {
         const name = h('input', { class: 'input bs-name', value: b.label, maxlength: '12', 'aria-label': `${b.label || '新しいボタン'}の名前` })
         name.addEventListener('input', () => { b.label = name.value })
+        const askP = h('input', { type: 'checkbox' })
+        askP.checked = !!b.askProject
+        askP.addEventListener('change', () => { b.askProject = askP.checked })
         const ask = h('input', { type: 'checkbox' })
         ask.checked = !!b.askMove
         ask.addEventListener('change', () => { b.askMove = ask.checked })
@@ -600,7 +686,8 @@ function openButtonSettings() {
             h('button', { type: 'button', class: 'bs-op del', 'aria-label': `${b.label}を消す`, text: '消す', onclick: () => {
               if (!confirm(`「${b.label || '新しいボタン'}」を消しますか?(記録した分は残ります)`)) return
               list = list.filter(x => x !== b); paint() } })),
-          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'), tabSel))
+          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'),
+            h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く'), tabSel))
         sec.append(row)
         if (pickFor === b.kind) {
           sec.append(h('div', { class: 'icon-grid', role: 'group', 'aria-label': '絵を選ぶ' },
@@ -623,7 +710,7 @@ function openButtonSettings() {
   const save = async () => {
     list.forEach(b => { b.label = (b.label || '').trim() })
     if (list.some(b => !b.label)) { msg.textContent = '名前が空のボタンがあります'; return }
-    await saveButtons(list.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...(b.askMove ? { askMove: true } : {}) })))
+    await saveButtons(list.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}) })))
     buildButtons()
     close()
     showToast('ボタンを保存しました')
@@ -649,6 +736,7 @@ function isStandalone() {
 // ---------- 起動 ----------
 async function main() {
   await loadButtons()
+  await loadProjects()
   buildButtons()
   $('#write').addEventListener('click', () => { closeMovePick(); openEditor(null) })
   $('#btnset').addEventListener('click', () => { closeMovePick(); openButtonSettings() })
