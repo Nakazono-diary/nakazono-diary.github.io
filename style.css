@@ -120,3 +120,19 @@ button, input, textarea { font: inherit; color: inherit; }
 @media (min-width: 700px) {
   body { max-width: 640px; margin: 0 auto; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
 }
+
+/* バックアップ */
+.bk-card, .bk-note { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.bk-card h3, .bk-note h3 { margin: 0; font-size: 16px; }
+.bk-card p, .bk-note p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.bk-note { background: transparent; }
+.secondary-btn { height: 50px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); font-size: 16px; font-weight: 700; padding: 0 16px; }
+.as-btn { display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.bk-confirm { border-top: 1px solid var(--line); padding-top: 10px; }
+.bk-confirm ul { margin: 0 0 8px; padding-left: 20px; font-size: 14px; line-height: 1.8; }
+.bk-row { display: flex; gap: 8px; margin-top: 10px; }
+.bk-row > * { flex: 1; }
+.bk-msg { font-size: 14px; line-height: 1.6; }
+.bk-msg.ok { color: #15803d; font-weight: 700; }
+.bk-msg.err { color: var(--danger); font-weight: 700; }
+.bk-card .primary-btn, .bk-card .secondary-btn { flex: none; }

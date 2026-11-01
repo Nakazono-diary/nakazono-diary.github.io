@@ -3,7 +3,7 @@
 import { allEntries, askPersist, deleteEntry, deletePhoto, entriesOfDay, getEntry, getPhoto, putEntry, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 
-const VERSION = '0.2.0'
+const VERSION = '0.3.0'
 
 // ボタン(仕様書 20 の案。あとで本人と最終版を決める)
 const BUTTONS = [
@@ -299,9 +299,8 @@ async function viewPhoto(pid) {
 }
 
 // ---------- ファイルに書き出す(条件1: 最初から手で書き出せる。文章と写真も入れる) ----------
-async function exportFile() {
-  const btn = $('#export')
-  btn.disabled = true
+async function exportFile(btn) {
+  if (btn) btn.disabled = true
   try {
     const entries = await allEntries()
     const photos = {}
@@ -315,7 +314,137 @@ async function exportFile() {
     document.body.append(a)
     a.click()
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500)
-  } finally { btn.disabled = false }
+    return { entries: entries.length, photos: Object.keys(photos).length }
+  } finally { if (btn) btn.disabled = false }
+}
+
+// ---------- ファイルから読み込む(今ある記録は消さずに足す。同じ記録は新しいほうを残す) ----------
+const AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/
+
+function dataURLToBlob(url) {
+  const m = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(url || '')
+  if (!m || !m[2]) throw new Error('写真の形が違います')
+  const bin = atob(m[3])
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return new Blob([bytes], { type: m[1] || 'image/jpeg' })
+}
+
+// ファイルを読んで、何がどれだけ入るかを調べる(まだ入れない)
+async function planImport(file) {
+  let data
+  try { data = JSON.parse(await file.text()) } catch { throw new Error('日記の書き出しファイルではないようです(読めませんでした)') }
+  if (!data || data.app !== 'diary' || !Array.isArray(data.entries)) throw new Error('日記の書き出しファイルではないようです')
+  const photos = data.photos && typeof data.photos === 'object' ? data.photos : {}
+  const plan = { add: [], replace: [], same: 0, bad: 0, photos: 0, exported_at: data.exported_at || '' }
+  for (const raw of data.entries) {
+    if (!raw || typeof raw.id !== 'string' || !AT_RE.test(raw.at || '') || typeof raw.label !== 'string') { plan.bad++; continue }
+    const at = raw.at.length === 16 ? raw.at + ':00' : raw.at
+    const e = { ...raw, at, day: at.slice(0, 10), kind: raw.kind || 'memo', text: textOf(raw), photos: Array.isArray(raw.photos) ? raw.photos.filter(p => typeof p === 'string') : [] }
+    delete e.note
+    const now = await getEntry(e.id)
+    if (!now) plan.add.push(e)
+    else if ((e.updated_at || e.at) > (now.updated_at || now.at)) plan.replace.push(e)
+    else plan.same++
+  }
+  for (const e of [...plan.add, ...plan.replace]) for (const pid of e.photos) if (photos[pid] && !(await getPhoto(pid))) plan.photos++
+  plan.photoData = photos
+  return plan
+}
+
+async function applyImport(plan) {
+  let photos = 0
+  for (const e of [...plan.add, ...plan.replace]) {
+    const keep = []
+    for (const pid of e.photos) {
+      if (await getPhoto(pid)) { keep.push(pid); continue }
+      const p = plan.photoData[pid]
+      if (!p || !p.data) continue
+      try {
+        await savePhoto({ id: pid, blob: dataURLToBlob(p.data), w: p.w || 0, h: p.h || 0, created_at: p.created_at || e.at })
+        keep.push(pid); photos++
+      } catch { /* 読めない写真は飛ばす */ }
+    }
+    await putEntry({ ...e, photos: keep })
+  }
+  return photos
+}
+
+function openBackup() {
+  const sheet = $('#sheet')
+  const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+  const msg = h('div', { class: 'bk-msg', 'aria-live': 'polite' })
+  const expBtn = h('button', { type: 'button', class: 'primary-btn', text: 'ファイルに書き出す' })
+  expBtn.addEventListener('click', async () => {
+    msg.className = 'bk-msg'
+    msg.textContent = '書き出しています…'
+    try {
+      const n = await exportFile(expBtn)
+      msg.textContent = `記録 ${n.entries}件・写真 ${n.photos}枚を書き出しました。スマホの「ダウンロード」に入ります。`
+    } catch (err) { msg.className = 'bk-msg err'; msg.textContent = `書き出せませんでした: ${err.message || err}` }
+  })
+  const fileIn = h('input', { type: 'file', accept: '.json,application/json', class: 'visually-hidden', id: 'import-in', 'aria-label': '読み込むファイルを選ぶ' })
+  const confirmBox = h('div', { class: 'bk-confirm' })
+  confirmBox.hidden = true
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files[0]
+    fileIn.value = ''
+    confirmBox.hidden = true
+    if (!f) return
+    msg.className = 'bk-msg'
+    msg.textContent = `「${f.name}」を調べています…`
+    let plan
+    try { plan = await planImport(f) } catch (err) { msg.className = 'bk-msg err'; msg.textContent = err.message || String(err); return }
+    const n = plan.add.length + plan.replace.length
+    msg.textContent = ''
+    const lines = [
+      `ファイル: ${f.name}${plan.exported_at ? `(${plan.exported_at.slice(0, 16).replace('T', ' ')} に書き出したもの)` : ''}`,
+      `新しく足す記録: ${plan.add.length}件`,
+      plan.replace.length ? `こちらより新しいので入れ替える記録: ${plan.replace.length}件` : null,
+      `すでにあるので、そのままにする記録: ${plan.same}件`,
+      `新しく足す写真: ${plan.photos}枚`,
+      plan.bad ? `読めなかった記録: ${plan.bad}件(飛ばします)` : null,
+    ].filter(Boolean)
+    confirmBox.replaceChildren(
+      h('ul', {}, ...lines.map(l => h('li', { text: l }))),
+      n ? h('p', { class: 'hint', text: '今ある記録は消しません。' }) : h('p', { text: '足すものはありません。' }),
+      h('div', { class: 'bk-row' },
+        h('button', { type: 'button', class: 'secondary-btn', text: 'やめる', onclick: () => { confirmBox.hidden = true } }),
+        n ? h('button', { type: 'button', class: 'primary-btn', text: `${n}件を読み込む`, onclick: async (ev) => {
+          ev.currentTarget.disabled = true
+          try {
+            const ph = await applyImport(plan)
+            confirmBox.hidden = true
+            msg.className = 'bk-msg ok'
+            msg.textContent = `読み込みました(記録 ${n}件・写真 ${ph}枚)。`
+            render()
+          } catch (err) { msg.className = 'bk-msg err'; msg.textContent = `読み込めませんでした: ${err.message || err}` }
+        } }) : null))
+    confirmBox.hidden = false
+  })
+
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'バックアップ' },
+    h('div', { class: 'sheet-top' }, h('h2', { text: 'バックアップ' }),
+      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
+    h('div', { class: 'sheet-body' },
+      h('section', { class: 'bk-card' },
+        h('h3', { text: 'ファイルに書き出す' }),
+        h('p', { text: '記録を文章・写真ごと1つのファイル(.json)にします。ときどき書き出して、PC などに移しておくと安心です。' }),
+        expBtn),
+      h('section', { class: 'bk-card' },
+        h('h3', { text: 'ファイルから読み込む' }),
+        h('p', { text: '書き出したファイルから戻します。今ある記録は消さずに足します(機種変更のときなど)。' }),
+        fileIn,
+        h('label', { class: 'secondary-btn as-btn', for: 'import-in', text: 'ファイルを選ぶ' }),
+        confirmBox),
+      msg,
+      h('section', { class: 'bk-note' },
+        h('h3', { text: '記録はどこにある?' }),
+        h('p', { text: 'このスマホのブラウザの中(この住所専用の保存場所)だけにあります。どこにも送っていません。' }),
+        h('p', { text: 'ブラウザの「サイトのデータを削除」、アプリの削除、機種変更・初期化で消えます。その前に書き出してください。' })),
+    )))
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
 }
 
 // ---------- iPhone: ホーム画面に入れていないときの案内 ----------
@@ -330,7 +459,7 @@ function isStandalone() {
 // ---------- 起動 ----------
 async function main() {
   buildButtons()
-  $('#export').addEventListener('click', exportFile)
+  $('#export').addEventListener('click', openBackup)
   $('#version').textContent = `v${VERSION}`
   $('#ios-install').hidden = !(isIOS() && !isStandalone())
   await render()
