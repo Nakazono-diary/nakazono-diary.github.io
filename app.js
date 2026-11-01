@@ -1,13 +1,16 @@
 // 日記・タイムライン: ボタンで記録、文章と写真を書き足す、今日のタイムラインに並ぶ。
 // 記録はスマホの中だけ(store.js)。よそのサイトには何も送らない・何も読み込まない。
-import { allEntries, askPersist, deleteEntry, deletePhoto, entriesOfDay, getEntry, getPhoto, getSetting, putEntry, putSetting, savePhoto } from './store.js'
+import { allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
+import { h } from './dom.js'
+import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLines, recorderButton, weatherForm, weatherText } from './body.js'
+import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 
-const VERSION = '0.6.0'
+const VERSION = '0.7.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
-const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'errand', label: '用事' }]
+const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'errand', label: '用事' }, { key: 'body', label: '体調・天気' }]
 const DEFAULT_BUTTONS = [
   { kind: 'wake', label: '起床', icon: '☀️', tab: 'flow' },
   { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true },
@@ -32,11 +35,17 @@ const DEFAULT_BUTTONS = [
   { kind: 'bank', label: '銀行', icon: '🏦', tab: 'errand' },
   { kind: 'cityhall', label: '役所', icon: '🏛️', tab: 'errand' },
   { kind: 'barber', label: '床屋', icon: '💈', tab: 'errand' },
+  // form: 押したら開く入力欄(health = 体調、bowel = お通じのかたさ、weather = 天気と気温)
+  { kind: 'health', label: '体調', icon: '🩺', tab: 'body', form: 'health' },
+  { kind: 'bowel', label: 'お通じ', icon: '🚽', tab: 'body', form: 'bowel' },
+  { kind: 'weather', label: '天気', icon: '🌤️', tab: 'body', form: 'weather' },
 ]
+const FORMS = ['health', 'bowel', 'weather']
 // ボタンに選べる絵(端末の絵文字。よそから読み込まない)
 const ICONS = ['⭐', '☀️', '🌙', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
   '🏥', '💊', '🪦', '🙏', '⛩️', '🛒', '🏦', '🏛️', '💈', '✂️', '🎣', '⛳', '🎤', '🎬', '🎵', '🍺', '🍜', '🍰', '🐕', '🌱',
-  '🧹', '🧺', '🚗', '⛽', '🔧', '💻', '📞', '✉️', '👪', '👶', '🎂', '🎁', '🏖️', '♨️', '🛏️', '🚿', '🪥', '💤', '📝', '❤️']
+  '🧹', '🧺', '🚗', '⛽', '🔧', '💻', '📞', '✉️', '👪', '👶', '🎂', '🎁', '🏖️', '♨️', '🛏️', '🚿', '🪥', '💤', '📝', '❤️',
+  '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊']
 
 let BUTTONS = DEFAULT_BUTTONS.map(b => ({ ...b }))
 // タスク管理から読み込んだ件名リスト(件名名と工程名だけ。一方通行で、こちらからは何も返さない)
@@ -79,15 +88,32 @@ async function loadButtons() {
       if (news.length || ADDED_LATER.some(k => !added.includes(k))) {
         for (const k of news) {
           const d = DEFAULT_BUTTONS.find(b => b.kind === k)
-          const i = BUTTONS.findIndex(b => b.tab === d.tab)
-          BUTTONS.splice(i < 0 ? BUTTONS.length : i, 0, { ...d })
+          // 同じタブの最後に足す(タブにまだなければ、いちばん後ろ)
+          let i = -1
+          BUTTONS.forEach((b, j) => { if (b.tab === d.tab) i = j })
+          BUTTONS.splice(i < 0 ? BUTTONS.length : i + 1, 0, { ...d })
         }
         await putSetting('buttons', { ...v, buttons: BUTTONS, added: [...new Set([...added, ...ADDED_LATER])] })
       }
     }
   } catch { /* なければ最初のまま */ }
 }
-const ADDED_LATER = ['work']   // v0.6 で増えた最初のボタン
+const ADDED_LATER = ['work', 'health', 'bowel', 'weather']   // v0.6・v0.7 で増えた最初のボタン
+// お薬・気になることの登録(本人が足す)、潮位表
+const LISTS = {
+  meds: [], symptoms: [...DEFAULT_SYMPTOMS],
+  async save(key, list) { LISTS[key] = list; await putSetting(key, list) },
+}
+let TIDE = null
+async function loadLists() {
+  try {
+    const m = await getSetting('meds'); if (Array.isArray(m)) LISTS.meds = m
+    const sy = await getSetting('symptoms'); if (Array.isArray(sy)) LISTS.symptoms = sy
+    TIDE = await getSetting('tide')
+  } catch { /* なくても動く */ }
+}
+// ボタンの見た目以外に持つもの(保存・読み込みで残す)
+const btnExtra = (b) => ({ ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
 async function saveButtons(list) {
   BUTTONS = list
   await putSetting('buttons', { buttons: list, added: ADDED_LATER, updated_at: stamp(new Date()) })
@@ -142,20 +168,7 @@ const hm = (at) => at.slice(11, 16)
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 const textOf = (e) => e.text || e.note || ''
 const photosOf = (e) => e.photos || []
-
-// 要素を作る: h('div', { class: 'x', onclick: fn }, 子, 子…)
-function h(tag, props = {}, ...kids) {
-  const el = document.createElement(tag)
-  for (const [k, v] of Object.entries(props || {})) {
-    if (v == null || v === false) continue
-    if (k === 'class') el.className = v
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v)
-    else if (k === 'text') el.textContent = v
-    else el.setAttribute(k, v === true ? '' : v)
-  }
-  for (const c of kids.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : String(c))
-  return el
-}
+const audiosOf = (e) => e.audios || []
 
 const draft = {
   get() { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null') } catch { return null } },
@@ -175,6 +188,29 @@ async function photoURL(id) {
 function releaseURLs() { for (const u of urls) URL.revokeObjectURL(u); urls.clear() }
 
 let today = dayOf(new Date())
+const KY_KEY = 'diary.koyomiOpen'
+function koyomiOpen() { try { return localStorage.getItem(KY_KEY) === '1' } catch { return false } }
+
+// 録音の再生用 URL(写真と同じく、使い終わったら放す)
+async function audioURL(id) {
+  const a = await getAudio(id)
+  if (!a) return null
+  const u = URL.createObjectURL(a.blob)
+  urls.add(u)
+  return { url: u, sec: a.sec || 0 }
+}
+async function audioList(ids, onRemove) {
+  const box = h('div', { class: 'audios' })
+  for (const aid of ids) {
+    const a = await audioURL(aid)
+    if (!a) continue
+    box.append(h('div', { class: 'audio-row' },
+      h('span', { class: 'audio-tag', text: `🎙️ ${fmtSec(a.sec)}` }),
+      h('audio', { controls: true, preload: 'metadata', src: a.url, onclick: (ev) => ev.stopPropagation() }),
+      onRemove ? h('button', { type: 'button', class: 'ed-photo-x static', 'aria-label': 'この録音を外す', text: '×', onclick: () => onRemove(aid) }) : null))
+  }
+  return box
+}
 
 // ---------- 今日のタイムライン ----------
 async function render() {
@@ -184,6 +220,9 @@ async function render() {
   const list = await entriesOfDay(today)
   const nPhotos = list.reduce((a, e) => a + photosOf(e).length, 0)
   $('#count').textContent = list.length ? `記録 ${list.length}件${nPhotos ? ` ・ 写真 ${nPhotos}枚` : ''}` : ''
+  try {
+    $('#koyomi').replaceChildren(koyomiCard(today, TIDE, koyomiOpen(), (o) => { try { localStorage.setItem(KY_KEY, o ? '1' : '0') } catch { /* */ } }))
+  } catch (err) { $('#koyomi').replaceChildren(h('p', { class: 'hint', text: `暦を出せませんでした: ${err.message || err}` })) }
   $('#empty').hidden = list.length > 0
   releaseURLs()
   const ul = $('#timeline')
@@ -207,6 +246,9 @@ async function card(e) {
     ))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: projectText(e.project) }))
   if (movesOf(e).length) body.append(h('p', { class: 'tl-moves', text: movesText(movesOf(e)) }))
+  for (const line of healthLines(e.health)) body.append(h('p', { class: 'tl-health', text: line }))
+  if (e.bowel && (e.bowel.type || e.bowel.count != null)) body.append(h('p', { class: 'tl-health', text: e.kind === 'bowel' ? bowelText(e.bowel).replace('🚽 お通じ', 'かたさ:').replace(/(\d+)回/, '$1回 ・') : bowelText(e.bowel) }))
+  if (e.weather) body.append(h('p', { class: 'tl-weather', text: weatherText(e.weather) }))
   if (text) {
     const p = h('p', { class: 'tl-text clamp', text })
     body.append(p)
@@ -229,6 +271,7 @@ async function card(e) {
     }
     body.append(strip)
   }
+  if (audiosOf(e).length) body.append(await audioList(audiosOf(e)))
   return h('li', { class: 'tl-item' },
     h('span', { class: 'tl-time', text: hm(e.at) }),
     h('span', { class: 'tl-dot' + (isMemo ? ' memo' : ''), 'aria-hidden': 'true' }),
@@ -246,13 +289,18 @@ function buildButtons() {
     text: t.label, onclick: () => { try { localStorage.setItem(TAB_KEY, t.key) } catch { /* */ } buildButtons() } })))
   const box = $('#buttons')
   const list = BUTTONS.filter(b => b.tab === tab)
-  box.replaceChildren(...list.map(b => h('button', { type: 'button', class: 'rec-btn', onclick: () => quickRecord(b) },
+  box.replaceChildren(...list.map(b => h('button', { type: 'button', class: 'rec-btn', onclick: () => pressButton(b) },
     h('span', { class: 'rec-icon', 'aria-hidden': 'true', text: b.icon }),
     h('span', { class: 'rec-label' + (b.label.length > 5 ? ' long' : ''), text: b.label }))))
   if (!list.length) box.append(h('p', { class: 'muted no-btn', text: 'このタブにはボタンがありません。「ボタン設定」で足せます。' }))
 }
 
 let toastTimer = null
+// 体調・天気は入力欄を開く。ほかは押した時刻ですぐ記録
+function pressButton(b) {
+  if (b.form === 'health' || b.form === 'weather') { closeMovePick(); openEditor(null, { kind: b.kind }) }
+  else quickRecord(b)
+}
 async function quickRecord(b) {
   const now = new Date()
   const ts = stamp(now)
@@ -264,7 +312,7 @@ async function quickRecord(b) {
     { label: '書き足す', fn: () => { closeMovePick(); openEditor(e.id) } },
     { label: '取り消す', fn: async () => { closeMovePick(); await deleteEntry(e.id); render() } },
   ])
-  if (b.askMove || b.askProject) openMovePick(e, b)
+  if (b.askMove || b.askProject || b.form === 'bowel') openMovePick(e, b)
   else closeMovePick()
 }
 
@@ -280,6 +328,7 @@ function openMovePick(e, b) {
   const parts = []
   if (b.askProject) parts.push(h('p', { class: 'mp-label', text: '件名・工程は?' }), projectPicker(null, (pj) => update({ project: pj })))
   if (b.askMove) parts.push(h('p', { class: 'mp-label', text: '移動手段は?' }), movePicker([], (keys) => update({ moves: [...keys] })))
+  if (b.form === 'bowel') parts.push(h('p', { class: 'mp-label', text: 'かたさは?' }), bowelPicker(null, (bw) => update({ bowel: bw })))
   box.replaceChildren(
     h('div', { class: 'mp-top' }, h('strong', { text: `「${e.label}」` }),
       h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: closeMovePick })),
@@ -298,12 +347,12 @@ function showToast(text, actions = []) {
 }
 
 // ---------- 書く・直す(画面案の「記録を足す」) ----------
-async function openEditor(id) {
+async function openEditor(id, preset = {}) {
   const editing = id ? await getEntry(id) : null
   const now = new Date()
   const saved = !editing ? draft.get() : null
   const st = {
-    kind: editing ? editing.kind : (saved && saved.kind) || 'memo',
+    kind: editing ? editing.kind : preset.kind || (saved && saved.kind) || 'memo',
     day: editing ? editing.day : dayOf(now),
     time: editing ? editing.at.slice(11, 16) : `${pad(now.getHours())}:${pad(now.getMinutes())}`,
     timeIsNow: !editing,
@@ -311,12 +360,15 @@ async function openEditor(id) {
     photos: editing ? [...photosOf(editing)] : [],
     moves: editing ? [...movesOf(editing)] : [],
     project: editing && editing.project ? { ...editing.project } : null,
+    audios: editing ? [...audiosOf(editing)] : [],
   }
   const added = []      // この窓で足した写真(やめたら消す)
   const removed = []    // この窓で外した写真(保存したら消す)
+  const addedA = [], removedA = []   // 録音も同じ
   const sheet = $('#sheet')
   const close = async (commit) => {
-    if (!commit) for (const pid of added) await deletePhoto(pid)
+    if (rec.busy()) rec.stop()
+    if (!commit) { for (const pid of added) await deletePhoto(pid); for (const aid of addedA) await deleteAudio(aid) }
     sheet.hidden = true
     sheet.replaceChildren()
     document.body.classList.remove('no-scroll')
@@ -332,7 +384,12 @@ async function openEditor(id) {
 
   // 種類
   const kindBox = h('div', { class: 'kind-groups', role: 'group', 'aria-label': '種類' })
-  const paintKinds = () => kindBox.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.kind === st.kind ? 'true' : 'false'))
+  const paintKinds = () => {
+    kindBox.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.kind === st.kind ? 'true' : 'false'))
+    // 種類に合わせて、体調・お通じ・天気の欄を出す
+    const f = (kindInfo(st.kind) || {}).form
+    secHealth.hidden = f !== 'health'; secBowel.hidden = f !== 'bowel'; secWeather.hidden = f !== 'weather'
+  }
   const kindBtn = (k) => h('button', { type: 'button', class: 'kind', 'data-kind': k.kind, onclick: () => { st.kind = k.kind; paintKinds(); keepDraft() } },
     h('span', { 'aria-hidden': 'true', text: k.icon }), k.label)
   const extra = editing && editing.kind !== 'memo' && !BUTTONS.some(b => b.kind === editing.kind)
@@ -342,6 +399,15 @@ async function openEditor(id) {
     const list = BUTTONS.filter(b => b.tab === t.key)
     if (list.length) kindBox.append(h('p', { class: 'kind-tab', text: t.label }), h('div', { class: 'kinds' }, ...list.map(kindBtn)))
   }
+
+  // 体調・お通じ・天気
+  const hf = healthForm(editing && editing.health, LISTS)
+  const wf = weatherForm(editing && editing.weather)
+  let bowel = editing && editing.bowel ? { ...editing.bowel } : {}
+  const secHealth = h('div', { class: 'ed-sec' }, h('span', { class: 'ed-label', text: '体調(入れたものだけ記録します)' }), hf.el,
+    h('p', { class: 'hint', text: '数字をそのまま残すだけで、病気かどうかの判断はしません。気になるときはお医者さんへ。' }))
+  const secBowel = h('div', { class: 'ed-sec' }, h('span', { class: 'ed-label', text: 'お通じのかたさ' }), bowelPicker(bowel, (b) => { bowel = b }))
+  const secWeather = h('div', { class: 'ed-sec' }, h('span', { class: 'ed-label', text: '天気と気温' }), wf.el)
   paintKinds()
 
   // 文章
@@ -382,29 +448,53 @@ async function openEditor(id) {
   })
   const addPhoto = h('label', { class: 'add-photo', for: 'photo-in' }, h('span', { 'aria-hidden': 'true', text: '📷' }), '写真を足す')
 
+  // 録音
+  const audioBox = h('div', {})
+  const paintAudios = async () => audioBox.replaceChildren(await audioList(st.audios, (aid) => {
+    st.audios = st.audios.filter(x => x !== aid)
+    if (addedA.includes(aid)) { addedA.splice(addedA.indexOf(aid), 1); deleteAudio(aid) } else removedA.push(aid)
+    paintAudios()
+  }))
+  const rec = recorderButton(async (blob, mime, sec) => {
+    const a = await saveAudio({ id: newId(), blob, mime, sec, created_at: stamp(new Date()) })
+    st.audios.push(a.id); addedA.push(a.id)
+    paintAudios()
+  }, (t) => { msg.textContent = t })
+
   // 保存
   const save = async () => {
     const k = kindInfo(st.kind) || (editing && editing.kind === st.kind ? { kind: editing.kind, label: editing.label, icon: editing.icon } : MEMO)
     const text = ta.value.trim()
-    if (st.kind === 'memo' && !text && !st.photos.length) { msg.textContent = '文章か写真を入れてください'; return }
+    if (rec.busy()) { msg.textContent = '録音中です。先に「止める」を押してください'; return }
+    const f = k.form
+    const health = f === 'health' ? hf.get() : null
+    const weather = f === 'weather' ? wf.get() : null
+    const bw = f === 'bowel' && (bowel.type || bowel.count != null) ? bowel : null
+    if (st.kind === 'memo' && !text && !st.photos.length && !st.audios.length) { msg.textContent = '文章・写真・録音のどれかを入れてください'; return }
     const ts = stamp(new Date())
     const t = st.timeIsNow ? hmsOf(new Date()) : `${timeIn.value || '00:00'}:00`
     const day = st.timeIsNow ? dayOf(new Date()) : (dayIn.value || today)
     const e = {
       ...(editing || {}), id: editing ? editing.id : newId(), at: `${day}T${t}`, day, kind: k.kind, label: k.label, icon: k.icon,
-      text, photos: st.photos, moves: [...st.moves], project: st.project, created_at: editing ? editing.created_at || ts : ts, updated_at: ts,
+      text, photos: st.photos, moves: [...st.moves], project: st.project, audios: st.audios, created_at: editing ? editing.created_at || ts : ts, updated_at: ts,
     }
-    delete e.note
+    delete e.note; delete e.health; delete e.weather; delete e.bowel
+    if (health) e.health = health
+    if (weather) e.weather = weather
+    if (bw) e.bowel = bw
     await putEntry(e)
     for (const pid of removed) await deletePhoto(pid)
+    for (const aid of removedA) await deleteAudio(aid)
     if (!editing) draft.clear()
     await close(true)
     await render()
     showToast(editing ? '直しました' : `${hm(e.at)} 「${e.label}」を記録しました`)
   }
   const remove = async () => {
-    if (!confirm(`${hm(editing.at)} の「${editing.label}」を消しますか?(文章と写真も消えます)`)) return
+    if (!confirm(`${hm(editing.at)} の「${editing.label}」を消しますか?(文章・写真・録音も消えます)`)) return
+    if (rec.busy()) rec.stop()
     for (const pid of added) await deletePhoto(pid)
+    for (const aid of addedA) await deleteAudio(aid)
     await deleteEntry(editing.id)
     sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll')
     render()
@@ -417,12 +507,15 @@ async function openEditor(id) {
     h('div', { class: 'sheet-body' },
       h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '時刻' }), dayIn, timeIn, nowTag),
       h('div', {}, h('span', { class: 'ed-label', text: '種類' }), kindBox),
+      secHealth, secBowel, secWeather,
       h('div', {}, h('span', { class: 'ed-label', text: '件名・工程(タスク管理の件名リストから)' }), projectPicker(st.project, (pj) => { st.project = pj })),
       h('div', {}, h('span', { class: 'ed-label', text: '移動手段(いくつでも・押した順)' }), movePicker(st.moves)),
       h('div', {}, h('span', { class: 'ed-label', text: '文章' }), ta,
         h('p', { class: 'hint', text: !editing && saved && saved.text ? '書きかけを戻しました。' : '書きかけは自動で取っておきます。' })),
       h('div', {}, h('span', { class: 'ed-label', text: '写真' }), strip, fileIn, addPhoto,
         h('p', { class: 'hint', text: '写真は小さくして、このスマホの中にしまいます(撮影場所の情報は消えます)。' })),
+      h('div', {}, h('span', { class: 'ed-label', text: '録音' }), audioBox, rec.el,
+        h('p', { class: 'hint', text: '声はこのスマホの中だけにしまいます。文字にするのは、ミニPCに移ってから(Whisper)。いまはキーボードのマイクで文章に入れられます。' })),
       msg),
     h('div', { class: 'sheet-foot' },
       editing ? h('button', { type: 'button', class: 'danger-btn', text: '消す', onclick: remove }) : null,
@@ -431,8 +524,10 @@ async function openEditor(id) {
   sheet.hidden = false
   document.body.classList.add('no-scroll')
   paintPhotos()
+  paintAudios()
   requestAnimationFrame(grow)
-  if (!editing) ta.focus()
+  if (preset.record) rec.start()
+  else if (!editing && !preset.kind) ta.focus()
 }
 
 // ---------- 写真を大きく見る ----------
@@ -455,13 +550,19 @@ async function exportFile(btn) {
       const p = await getPhoto(pid)
       if (p) photos[pid] = { w: p.w, h: p.h, created_at: p.created_at, data: await blobToDataURL(p.blob) }
     }
-    const data = { app: 'diary', format: 2, version: VERSION, exported_at: stamp(new Date()), entries, photos, buttons: BUTTONS }
+    const audios = {}
+    for (const e of entries) for (const aid of audiosOf(e)) {
+      const a = await getAudio(aid)
+      if (a) audios[aid] = { mime: a.mime, sec: a.sec, created_at: a.created_at, data: await blobToDataURL(a.blob) }
+    }
+    const data = { app: 'diary', format: 3, version: VERSION, exported_at: stamp(new Date()), entries, photos, audios, buttons: BUTTONS,
+      lists: { meds: LISTS.meds, symptoms: LISTS.symptoms } }
     const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' })
     const a = h('a', { href: URL.createObjectURL(blob), download: `diary-${dayOf(new Date())}.json` })
     document.body.append(a)
     a.click()
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500)
-    return { entries: entries.length, photos: Object.keys(photos).length }
+    return { entries: entries.length, photos: Object.keys(photos).length, audios: Object.keys(audios).length }
   } finally { if (btn) btn.disabled = false }
 }
 
@@ -469,8 +570,8 @@ async function exportFile(btn) {
 const AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/
 
 function dataURLToBlob(url) {
-  const m = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(url || '')
-  if (!m || !m[2]) throw new Error('写真の形が違います')
+  const m = /^data:([^,]*?)(;base64)?,(.*)$/s.exec(url || '')
+  if (!m || !m[2]) throw new Error('写真・録音の形が違います')
   const bin = atob(m[3])
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
@@ -489,7 +590,7 @@ async function planImport(file) {
   // 変えていれば、ファイルにあってこちらにないボタン(自分で足したボタンなど)だけ足す。
   if (Array.isArray(data.buttons)) {
     const ok = data.buttons.filter(b => b && typeof b.kind === 'string' && typeof b.label === 'string' && b.label.trim() && TABS.some(t => t.key === b.tab))
-      .map(b => ({ kind: b.kind, label: b.label.trim().slice(0, 20), icon: typeof b.icon === 'string' ? b.icon.slice(0, 8) : '⭐', tab: b.tab, ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}) }))
+      .map(b => ({ kind: b.kind, label: b.label.trim().slice(0, 20), icon: typeof b.icon === 'string' ? b.icon.slice(0, 8) : '⭐', tab: b.tab, ...btnExtra(b) }))
     const mine = await getSetting('buttons')
     if (!mine && ok.length) {
       if (JSON.stringify(ok) !== JSON.stringify(BUTTONS)) plan.buttonsAll = ok
@@ -500,8 +601,10 @@ async function planImport(file) {
   for (const raw of data.entries) {
     if (!raw || typeof raw.id !== 'string' || !AT_RE.test(raw.at || '') || typeof raw.label !== 'string') { plan.bad++; continue }
     const at = raw.at.length === 16 ? raw.at + ':00' : raw.at
-    const e = { ...raw, at, day: at.slice(0, 10), kind: raw.kind || 'memo', text: textOf(raw), photos: Array.isArray(raw.photos) ? raw.photos.filter(p => typeof p === 'string') : [], moves: Array.isArray(raw.moves) ? raw.moves.filter(k => MOVE_BY[k]) : [], project: raw.project && typeof raw.project.title === 'string' ? { title: raw.project.title, step: typeof raw.project.step === 'string' ? raw.project.step : '' } : null }
+    const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : undefined)
+    const e = { ...raw, health: obj(raw.health), weather: obj(raw.weather), bowel: obj(raw.bowel), audios: Array.isArray(raw.audios) ? raw.audios.filter(a => typeof a === 'string') : [], at, day: at.slice(0, 10), kind: raw.kind || 'memo', text: textOf(raw), photos: Array.isArray(raw.photos) ? raw.photos.filter(p => typeof p === 'string') : [], moves: Array.isArray(raw.moves) ? raw.moves.filter(k => MOVE_BY[k]) : [], project: raw.project && typeof raw.project.title === 'string' ? { title: raw.project.title, step: typeof raw.project.step === 'string' ? raw.project.step : '' } : null }
     delete e.note
+    for (const k of ['health', 'weather', 'bowel']) if (e[k] === undefined) delete e[k]
     const now = await getEntry(e.id)
     if (!now) plan.add.push(e)
     else if ((e.updated_at || e.at) > (now.updated_at || now.at)) plan.replace.push(e)
@@ -509,6 +612,17 @@ async function planImport(file) {
   }
   for (const e of [...plan.add, ...plan.replace]) for (const pid of e.photos) if (photos[pid] && !(await getPhoto(pid))) plan.photos++
   plan.photoData = photos
+  const audios = data.audios && typeof data.audios === 'object' ? data.audios : {}
+  plan.audios = 0
+  for (const e of [...plan.add, ...plan.replace]) for (const aid of e.audios) if (audios[aid] && !(await getAudio(aid))) plan.audios++
+  plan.audioData = audios
+  // お薬・気になることの登録は、ないものだけ足す
+  const L = data.lists && typeof data.lists === 'object' ? data.lists : {}
+  plan.lists = {}
+  for (const key of ['meds', 'symptoms']) {
+    const add = (Array.isArray(L[key]) ? L[key] : []).filter(x => typeof x === 'string' && x.trim() && !LISTS[key].includes(x))
+    if (add.length) plan.lists[key] = add
+  }
   return plan
 }
 
@@ -527,8 +641,19 @@ async function applyImport(plan) {
         keep.push(pid); photos++
       } catch { /* 読めない写真は飛ばす */ }
     }
-    await putEntry({ ...e, photos: keep })
+    const keepA = []
+    for (const aid of e.audios) {
+      if (await getAudio(aid)) { keepA.push(aid); continue }
+      const a = plan.audioData[aid]
+      if (!a || !a.data) continue
+      try {
+        await saveAudio({ id: aid, blob: dataURLToBlob(a.data), mime: a.mime || '', sec: a.sec || 0, created_at: a.created_at || e.at })
+        keepA.push(aid)
+      } catch { /* 読めない録音は飛ばす */ }
+    }
+    await putEntry({ ...e, photos: keep, audios: keepA })
   }
+  for (const [key, add] of Object.entries(plan.lists || {})) await LISTS.save(key, [...LISTS[key], ...add])
   return photos
 }
 
@@ -563,6 +688,43 @@ function namesCard() {
     status, fileIn, h('label', { class: 'secondary-btn as-btn', for: 'names-in', text: '件名リストを読み込む' }), msg)
 }
 
+// 潮位表(気象庁)を読み込む。読み込んだあとは外につながらない
+function tideCard() {
+  const status = h('p')
+  const msg = h('p', { class: 'bk-msg', 'aria-live': 'polite' })
+  const nameIn = h('input', { class: 'input', maxlength: '12', 'aria-label': '港の名前', placeholder: '港の名前' })
+  const paint = () => {
+    const days = TIDE && TIDE.days ? Object.keys(TIDE.days).sort() : []
+    status.textContent = days.length ? `いま入っている潮位表: ${TIDE.name || TIDE.code}(${days[0]} 〜 ${days[days.length - 1]})` : 'まだ読み込んでいません。'
+    nameIn.value = TIDE ? TIDE.name || '' : ''
+    nameRow.hidden = !days.length
+  }
+  const nameRow = h('div', { class: 'add-row' }, nameIn, h('button', { type: 'button', class: 'small-btn', text: '名前を保存', onclick: async () => {
+    if (!TIDE) return
+    TIDE = { ...TIDE, name: nameIn.value.trim() }; await putSetting('tide', TIDE); paint(); render() } }))
+  const fileIn = h('input', { type: 'file', accept: '.txt,text/plain', class: 'visually-hidden', id: 'tide-in', 'aria-label': '潮位表のファイルを選ぶ' })
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files[0]; fileIn.value = ''
+    if (!f) return
+    msg.className = 'bk-msg'
+    try {
+      const t = parseTide(await f.text())
+      // 同じ港なら年をまたいで足す。違う港なら入れ替える
+      const same = TIDE && TIDE.code === t.code
+      TIDE = { code: t.code, name: same ? TIDE.name : (PORTS[t.code] || t.code), days: { ...(same ? TIDE.days : {}), ...t.days }, loaded_at: stamp(new Date()) }
+      await putSetting('tide', TIDE)
+      paint(); render()
+      msg.className = 'bk-msg ok'; msg.textContent = `${Object.keys(t.days).length}日分を読み込みました。`
+    } catch (err) { msg.className = 'bk-msg err'; msg.textContent = err.message || String(err) }
+  })
+  paint()
+  return h('section', { class: 'bk-card' },
+    h('h3', { text: '潮位表(気象庁)' }),
+    h('p', { text: '気象庁の「潮位表」の、港ごとの1年分のテキストファイル(例: 大阪)を保存して、ここで読み込みます。読み込んだあとは外につながらずに、満潮・干潮の時刻が「今日の暦」に出ます。年に1回、翌年の分を読み込んでください。' }),
+    h('a', { href: 'https://www.data.jma.go.jp/kaiyou/db/tide/suisan/readme.html', target: '_blank', rel: 'noopener noreferrer', class: 'ext-link', text: '気象庁の潮位表の説明ページを開く' }),
+    status, fileIn, h('label', { class: 'secondary-btn as-btn', for: 'tide-in', text: '潮位表を読み込む' }), nameRow, msg)
+}
+
 function openBackup() {
   const sheet = $('#sheet')
   const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
@@ -573,7 +735,7 @@ function openBackup() {
     msg.textContent = '書き出しています…'
     try {
       const n = await exportFile(expBtn)
-      msg.textContent = `記録 ${n.entries}件・写真 ${n.photos}枚を書き出しました。スマホの「ダウンロード」に入ります。`
+      msg.textContent = `記録 ${n.entries}件・写真 ${n.photos}枚${n.audios ? `・録音 ${n.audios}本` : ''}を書き出しました。スマホの「ダウンロード」に入ります。`
     } catch (err) { msg.className = 'bk-msg err'; msg.textContent = `書き出せませんでした: ${err.message || err}` }
   })
   const fileIn = h('input', { type: 'file', accept: '.json,application/json', class: 'visually-hidden', id: 'import-in', 'aria-label': '読み込むファイルを選ぶ' })
@@ -597,6 +759,7 @@ function openBackup() {
       plan.replace.length ? `こちらより新しいので入れ替える記録: ${plan.replace.length}件` : null,
       `すでにあるので、そのままにする記録: ${plan.same}件`,
       `新しく足す写真: ${plan.photos}枚`,
+      plan.audios ? `新しく足す録音: ${plan.audios}本` : null,
       plan.buttonsAll ? 'ボタン: ファイルの並び・名前に入れ替えます(まだボタンを変えていないため)' : null,
       plan.buttons.length ? `足すボタン: ${plan.buttons.map(b => b.label).join('・')}` : null,
       plan.bad ? `読めなかった記録: ${plan.bad}件(飛ばします)` : null,
@@ -625,7 +788,8 @@ function openBackup() {
     h('div', { class: 'sheet-body' },
       h('section', { class: 'bk-card' },
         h('h3', { text: 'ファイルに書き出す' }),
-        h('p', { text: '記録を文章・写真ごと1つのファイル(.json)にします。ときどき書き出して、PC などに移しておくと安心です。' }),
+        h('p', { text: '記録を文章・写真・録音ごと1つのファイル(.json)にします。ときどき書き出して、PC などに移しておくと安心です。' }),
+        h('p', { class: 'warn-note', text: '体調の記録も入るので、ファイルは人に渡さないでください。' }),
         expBtn),
       h('section', { class: 'bk-card' },
         h('h3', { text: 'ファイルから読み込む' }),
@@ -635,6 +799,7 @@ function openBackup() {
         confirmBox),
       msg,
       namesCard(),
+      tideCard(),
       h('section', { class: 'bk-note' },
         h('h3', { text: '記録はどこにある?' }),
         h('p', { text: 'このスマホのブラウザの中(この住所専用の保存場所)だけにあります。どこにも送っていません。' }),
@@ -710,7 +875,7 @@ function openButtonSettings() {
   const save = async () => {
     list.forEach(b => { b.label = (b.label || '').trim() })
     if (list.some(b => !b.label)) { msg.textContent = '名前が空のボタンがあります'; return }
-    await saveButtons(list.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}) })))
+    await saveButtons(list.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })))
     buildButtons()
     close()
     showToast('ボタンを保存しました')
@@ -737,8 +902,10 @@ function isStandalone() {
 async function main() {
   await loadButtons()
   await loadProjects()
+  await loadLists()
   buildButtons()
   $('#write').addEventListener('click', () => { closeMovePick(); openEditor(null) })
+  $('#record').addEventListener('click', () => { closeMovePick(); openEditor(null, { kind: 'memo', record: true }) })
   $('#btnset').addEventListener('click', () => { closeMovePick(); openButtonSettings() })
   $('#export').addEventListener('click', openBackup)
   $('#version').textContent = `v${VERSION}`

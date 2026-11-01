@@ -1,7 +1,7 @@
 // 電波がなくても開けるように、アプリのファイルをスマホにしまっておく。
 // 記録そのものは IndexedDB にあり、ここでは扱わない。よそのサイトへの通信はしない。
-const CACHE = 'diary-v0.6.0'
-const FILES = ['./', './index.html', './app.js', './store.js', './photo.js', './style.css', './manifest.webmanifest',
+const CACHE = 'diary-v0.7.0'
+const FILES = ['./', './index.html', './app.js', './store.js', './photo.js', './dom.js', './body.js', './koyomi.js', './koyomiView.js', './kinenbi.js', './style.css', './manifest.webmanifest',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png']
 
 self.addEventListener('install', (e) => {

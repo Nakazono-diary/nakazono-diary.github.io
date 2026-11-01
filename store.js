@@ -4,10 +4,12 @@
 //
 // entries: { id, at: 'YYYY-MM-DDTHH:MM:SS', day: 'YYYY-MM-DD', kind, label, text, photos: [photoId], created_at, updated_at }
 // photos : { id, blob(JPEG), w, h, created_at }
-// settings: { key, value }   (key 'buttons' = ボタンの並び・名前・絵・タブ)
+// audios : { id, blob(録音), mime, sec, created_at }
+// settings: { key, value }   (key 'buttons' = ボタン、'projects' = 件名リスト、'meds' = お薬、'symptoms' = 症状、'tide' = 潮位表)
+// entries にはほかに moves・project・health・bowel・weather・audios: [audioId] が付くことがある
 
 const DB_NAME = 'diary'
-const DB_VER = 3
+const DB_VER = 4
 let dbp = null
 
 function open() {
@@ -22,6 +24,7 @@ function open() {
       }
       if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos', { keyPath: 'id' })
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' })
+      if (!db.objectStoreNames.contains('audios')) db.createObjectStore('audios', { keyPath: 'id' })
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -49,11 +52,12 @@ export function putEntry(entry) {
   return tx(['entries'], 'readwrite', s => req2p(s('entries').put(entry))).then(() => entry)
 }
 
-// 記録を消す(付いていた写真も消す)
+// 記録を消す(付いていた写真・録音も消す)
 export function deleteEntry(id) {
-  return tx(['entries', 'photos'], 'readwrite', async s => {
+  return tx(['entries', 'photos', 'audios'], 'readwrite', async s => {
     const e = await req2p(s('entries').get(id))
     for (const pid of (e && e.photos) || []) await req2p(s('photos').delete(pid))
+    for (const aid of (e && e.audios) || []) await req2p(s('audios').delete(aid))
     await req2p(s('entries').delete(id))
   })
 }
@@ -80,6 +84,16 @@ export function getPhoto(id) {
 
 export function deletePhoto(id) {
   return tx(['photos'], 'readwrite', s => req2p(s('photos').delete(id)))
+}
+
+export function saveAudio(a) {
+  return tx(['audios'], 'readwrite', s => req2p(s('audios').put(a))).then(() => a)
+}
+export function getAudio(id) {
+  return tx(['audios'], 'readonly', s => req2p(s('audios').get(id)))
+}
+export function deleteAudio(id) {
+  return tx(['audios'], 'readwrite', s => req2p(s('audios').delete(id)))
 }
 
 export function getSetting(key) {

@@ -185,3 +185,72 @@ button, input, textarea { font: inherit; color: inherit; }
 .tl-project { margin: 6px 0 0; font-size: 14px; font-weight: 600; color: #0b5f57; }
 @media (prefers-color-scheme: dark) { .tl-project { color: #5eead4; } }
 .mp-label { margin: 8px 0 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+
+/* v0.7: 体調・天気・録音・今日の暦 */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 40px; padding: 0 12px; border-radius: 20px; border: 1px solid var(--line2); background: var(--surface); font-size: 14px;
+  display: inline-flex; align-items: center; gap: 4px; }
+.chip[aria-pressed="true"] { background: #be185d; border-color: #be185d; color: #fff; font-weight: 700; }
+.chip.del { color: var(--danger); border-style: dashed; }
+.chip.mood { flex-direction: column; min-height: 58px; padding: 4px 8px; flex: 1; min-width: 56px; border-radius: 12px; gap: 0; font-size: 12px; }
+.chip.mood .chip-icon { font-size: 24px; }
+.chip-icon { font-size: 17px; }
+.hf { display: flex; flex-direction: column; gap: 14px; }
+.ed-sec { background: color-mix(in srgb, #be185d 5%, var(--surface)); border: 1px solid color-mix(in srgb, #be185d 25%, var(--line)); border-radius: 12px; padding: 12px; }
+.num-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.num-field { display: flex; flex-direction: column; gap: 4px; }
+.num-label { font-size: 13px; font-weight: 700; color: var(--muted); }
+.num-row { display: flex; align-items: center; gap: 6px; }
+.num-in { width: 100%; min-width: 0; }
+.num-unit { font-size: 13px; color: var(--muted); flex: none; }
+.hf-bowel { display: flex; flex-direction: column; gap: 8px; }
+.hf-bowel .num-field { max-width: 50%; }
+.add-row { display: flex; gap: 6px; margin-top: 8px; }
+.add-in { flex: 1; min-width: 0; }
+.link-btn.small { height: 32px; font-size: 13px; color: var(--muted); }
+.tl-health { margin: 6px 0 0; font-size: 14px; font-weight: 600; color: #be185d; }
+.tl-weather { margin: 6px 0 0; font-size: 14px; font-weight: 600; color: #0369a1; }
+@media (prefers-color-scheme: dark) { .tl-health { color: #f9a8d4; } .tl-weather { color: #7dd3fc; } .chip[aria-pressed="true"] { background: #db2777; border-color: #db2777; } }
+.warn-note { color: #b45309 !important; font-weight: 700; }
+.ext-link { color: var(--accent); font-size: 14px; font-weight: 700; }
+
+/* 録音 */
+.write-row { display: flex; gap: 8px; }
+.write-row .write-btn { flex: 1; }
+.write-row .rec-btn2 { flex: none; width: 34%; }
+.rec-start { height: 50px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); font-weight: 700; font-size: 16px;
+  display: inline-flex; align-items: center; gap: 10px; padding: 0 18px; }
+.rec-dot { width: 14px; height: 14px; border-radius: 50%; background: #dc2626; }
+.rec-start.on { background: #dc2626; border-color: #dc2626; color: #fff; }
+.rec-start.on .rec-dot { background: #fff; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+.rec-time { font-variant-numeric: tabular-nums; }
+.audios { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.audio-row { display: flex; align-items: center; gap: 6px; }
+.audio-row audio { flex: 1; min-width: 0; height: 40px; }
+.audio-tag { font-size: 13px; font-weight: 700; color: var(--muted); flex: none; }
+.ed-photo-x.static { position: static; flex: none; }
+
+/* 今日の暦 */
+.koyomi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; margin: 0 0 12px; overflow: hidden; }
+.ky-head { width: 100%; border: 0; background: none; text-align: left; padding: 10px 12px; display: flex; align-items: center; gap: 8px; }
+.ky-sum { flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 14px; }
+.ky-big { font-size: 17px; font-weight: 800; color: #7c2d12; }
+.ky-hol { color: #dc2626; font-weight: 700; }
+.ky-sekki { color: #15803d; font-weight: 700; }
+.ky-good { color: #a16207; font-weight: 700; }
+.ky-more { font-size: 12px; font-weight: 700; color: var(--accent); flex: none; }
+.ky-what { margin: -4px 12px 10px; font-size: 13px; color: var(--muted); }
+.ky-detail { border-top: 1px solid var(--line); padding: 6px 12px 12px; display: flex; flex-direction: column; }
+.ky-row { display: grid; grid-template-columns: 4.5em 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 14px; line-height: 1.55; }
+.ky-row:last-child { border-bottom: 0; }
+.ky-label { font-weight: 700; color: var(--muted); font-size: 13px; }
+.ky-bad { color: var(--danger); }
+.ky-graph { padding: 4px 0 6px 4.5em; }
+.tide-svg { width: 100%; height: 64px; display: block; }
+.tide-fill { fill: color-mix(in srgb, #0284c7 18%, transparent); }
+.tide-line { fill: none; stroke: #0284c7; stroke-width: 2; }
+.tide-now { stroke: #dc2626; stroke-width: 1.5; stroke-dasharray: 3 3; }
+.tide-tick { font-size: 9px; fill: var(--muted); text-anchor: middle; }
+@media (prefers-color-scheme: dark) { .ky-big { color: #fdba74; } .ky-hol { color: #f87171; } .ky-sekki { color: #4ade80; } .ky-good { color: #facc15; } }
+.tabs .tab { font-size: 13px; }
