@@ -150,3 +150,31 @@ button, input, textarea { font: inherit; color: inherit; }
 .movepick { margin-bottom: 10px; padding: 10px; border-radius: 12px; background: color-mix(in srgb, #f59e0b 10%, var(--surface)); border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--line)); }
 .mp-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 14px; }
 .mp-top .link-btn { height: 36px; }
+
+/* タブとボタン設定 */
+.top-btns { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.top-btns .small-btn { height: 34px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; background: var(--bg); border-radius: 10px; padding: 3px; }
+.tab { flex: 1; height: 36px; border: 0; border-radius: 8px; background: transparent; font-size: 14px; font-weight: 700; color: var(--muted); }
+.tab[aria-selected="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.no-btn { grid-column: 1 / -1; text-align: center; font-size: 13px; margin: 18px 0; }
+.kind-groups { display: flex; flex-direction: column; gap: 6px; }
+.kind-tab { margin: 6px 0 0; font-size: 12px; font-weight: 700; color: var(--muted); }
+.bs-tab { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.bs-tab h3 { margin: 0; font-size: 16px; }
+.bs-row { display: grid; grid-template-columns: 48px 1fr auto; gap: 8px; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.bs-icon { width: 48px; height: 48px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg); font-size: 24px; }
+.bs-name { min-width: 0; width: 100%; }
+.bs-ops { display: flex; gap: 4px; }
+.bs-op { height: 40px; min-width: 40px; border-radius: 8px; border: 1px solid var(--line2); background: var(--surface); font-weight: 700; }
+.bs-op:disabled { opacity: .35; }
+.bs-op.del { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, var(--line2)); padding: 0 8px; }
+.bs-sub { grid-column: 2 / -1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.bs-ask { display: flex; gap: 6px; align-items: center; }
+.bs-tabsel { height: 36px; font-size: 13px; padding: 0 8px; }
+.icon-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; padding: 8px; background: var(--bg); border-radius: 10px; }
+.icon-pick { height: 40px; border: 1px solid transparent; border-radius: 8px; background: var(--surface); font-size: 22px; padding: 0; }
+.icon-pick[aria-pressed="true"] { border-color: var(--accent); }
+.bs-add { width: 100%; }
+.bs-reset { align-self: center; color: var(--muted); font-weight: 500; font-size: 14px; }
+.rec-label.long { font-size: 12px; letter-spacing: -0.02em; }

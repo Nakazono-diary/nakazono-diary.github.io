@@ -23,7 +23,10 @@
     <div class="top-row">
       <div><h1 id="date">…</h1><span id="count" class="muted"></span></div>
       <span class="spacer"></span>
-      <button type="button" id="export" class="small-btn" title="ファイルに書き出す・ファイルから読み込む">バックアップ</button>
+      <div class="top-btns">
+        <button type="button" id="btnset" class="small-btn" title="ボタンを足す・変える・並べ替える">ボタン設定</button>
+        <button type="button" id="export" class="small-btn" title="ファイルに書き出す・ファイルから読み込む">バックアップ</button>
+      </div>
     </div>
   </header>
 
@@ -47,7 +50,7 @@
 
   <footer class="dock">
     <div id="movepick" class="movepick" hidden></div>
-    <div class="dock-label muted">いま記録する(押した時刻で入ります)</div>
+    <div id="tabs" class="tabs" role="tablist" aria-label="ボタンの種類"></div>
     <div id="buttons" class="buttons" role="group" aria-label="いま記録する"></div>
     <button type="button" id="write" class="write-btn"><span aria-hidden="true">✏️</span> 書く(文章・写真)</button>
     <div class="foot muted"><span id="version"></span> ・ 記録はこのスマホの中だけ <span id="persist"></span></div>

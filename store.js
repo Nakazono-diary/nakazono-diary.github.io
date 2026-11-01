@@ -4,9 +4,10 @@
 //
 // entries: { id, at: 'YYYY-MM-DDTHH:MM:SS', day: 'YYYY-MM-DD', kind, label, text, photos: [photoId], created_at, updated_at }
 // photos : { id, blob(JPEG), w, h, created_at }
+// settings: { key, value }   (key 'buttons' = ボタンの並び・名前・絵・タブ)
 
 const DB_NAME = 'diary'
-const DB_VER = 2
+const DB_VER = 3
 let dbp = null
 
 function open() {
@@ -20,6 +21,7 @@ function open() {
         st.createIndex('day', 'day')
       }
       if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos', { keyPath: 'id' })
+      if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' })
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -78,6 +80,14 @@ export function getPhoto(id) {
 
 export function deletePhoto(id) {
   return tx(['photos'], 'readwrite', s => req2p(s('photos').delete(id)))
+}
+
+export function getSetting(key) {
+  return tx(['settings'], 'readonly', s => req2p(s('settings').get(key))).then(r => (r ? r.value : null))
+}
+
+export function putSetting(key, value) {
+  return tx(['settings'], 'readwrite', s => req2p(s('settings').put({ key, value })))
 }
 
 // ブラウザに「この記録は勝手に消さないで」と頼む(できるブラウザだけ)
