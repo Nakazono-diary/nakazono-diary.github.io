@@ -293,3 +293,18 @@ button, input, textarea { font: inherit; color: inherit; }
 .input.small { height: 40px; font-size: 15px; padding: 0 8px; }
 .textarea.short { min-height: 80px; }
 .more-row { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
+/* v0.9: 時間の長さ */
+.tl-time { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.tl-end { font-size: 12px; font-weight: 600; color: var(--muted); }
+.tl-dot.span::after { width: 4px; left: 5px; background: color-mix(in srgb, var(--btn) 45%, var(--line2)); }
+.tl-dur { margin: 6px 0 0; font-size: 14px; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tl-dur.on { color: #b45309; }
+@media (prefers-color-scheme: dark) { .tl-dur.on { color: #fbbf24; } }
+.ongoing { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.og-item { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 12px; background: color-mix(in srgb, #f59e0b 12%, var(--surface)); border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--line)); }
+.og-item.long { border-color: var(--danger); }
+.og-icon { font-size: 20px; }
+.og-text { flex: 1; min-width: 0; font-size: 14px; }
+.og-end { height: 40px; padding: 0 14px; border-radius: 10px; border: 0; background: #b45309; color: #fff; font-weight: 700; font-size: 14px; flex: none; }
+.og-end.small { height: 32px; padding: 0 10px; font-size: 13px; }

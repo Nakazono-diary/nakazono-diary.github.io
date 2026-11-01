@@ -7,41 +7,49 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.8.1'
+const VERSION = '0.9.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
 const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'errand', label: '用事' }, { key: 'body', label: '体調・天気' }]
 const DEFAULT_BUTTONS = [
   { kind: 'wake', label: '起床', icon: '☀️', tab: 'flow', askPlace: true },
-  { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true, askPlace: true },
+  { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true, askPlace: true, span: true },
   { kind: 'reach', label: '到着', icon: '📍', tab: 'flow', askPlace: true },
-  { kind: 'arrive', label: '出社', icon: '🏢', tab: 'flow', askPlace: true },
-  { kind: 'out', label: '退社', icon: '🌆', tab: 'flow', askMove: true, askPlace: true },
+  { kind: 'arrive', label: '出社', icon: '🏢', tab: 'flow', askPlace: true, span: true },
+  { kind: 'out', label: '退社', icon: '🌆', tab: 'flow', askMove: true, askPlace: true, span: true },
   { kind: 'home', label: '帰宅', icon: '🏠', tab: 'flow', askPlace: true },
-  { kind: 'sleep', label: '就寝', icon: '🌙', tab: 'flow' },
-  { kind: 'meal', label: '食事', icon: '🍽️', tab: 'flow' },
-  { kind: 'work', label: '作業', icon: '💻', tab: 'do', askProject: true },
-  { kind: 'lunch', label: '昼休み', icon: '🍙', tab: 'do' },
-  { kind: 'break', label: '休憩', icon: '☕', tab: 'do' },
+  { kind: 'sleep', label: '就寝', icon: '🌙', tab: 'flow', span: true },
+  { kind: 'meal', label: '食事', icon: '🍽️', tab: 'flow', span: true },
+  { kind: 'work', label: '作業', icon: '💻', tab: 'do', askProject: true, span: true },
+  { kind: 'lunch', label: '昼休み', icon: '🍙', tab: 'do', span: true },
+  { kind: 'break', label: '休憩', icon: '☕', tab: 'do', span: true },
   { kind: 'resume', label: '再開', icon: '▶️', tab: 'do' },
-  { kind: 'read', label: '読書', icon: '📖', tab: 'do' },
-  { kind: 'tv', label: 'テレビ', icon: '📺', tab: 'do' },
-  { kind: 'game', label: 'ゲーム', icon: '🎮', tab: 'do' },
-  { kind: 'hobby', label: '趣味', icon: '🎨', tab: 'do' },
-  { kind: 'fitness', label: 'フィットネス', icon: '🏋️', tab: 'do' },
-  { kind: 'hospital', label: '病院', icon: '🏥', tab: 'errand', askPlace: true },
-  { kind: 'grave', label: 'お墓参り', icon: '🪦', tab: 'errand', askPlace: true },
-  { kind: 'shopping', label: '買い物', icon: '🛒', tab: 'errand', askPlace: true },
-  { kind: 'bank', label: '銀行', icon: '🏦', tab: 'errand', askPlace: true },
-  { kind: 'cityhall', label: '役所', icon: '🏛️', tab: 'errand', askPlace: true },
-  { kind: 'barber', label: '床屋', icon: '💈', tab: 'errand', askPlace: true },
+  { kind: 'read', label: '読書', icon: '📖', tab: 'do', span: true },
+  { kind: 'tv', label: 'テレビ', icon: '📺', tab: 'do', span: true },
+  { kind: 'game', label: 'ゲーム', icon: '🎮', tab: 'do', span: true },
+  { kind: 'hobby', label: '趣味', icon: '🎨', tab: 'do', span: true },
+  { kind: 'fitness', label: 'フィットネス', icon: '🏋️', tab: 'do', span: true },
+  { kind: 'hospital', label: '病院', icon: '🏥', tab: 'errand', askPlace: true, span: true },
+  { kind: 'grave', label: 'お墓参り', icon: '🪦', tab: 'errand', askPlace: true, span: true },
+  { kind: 'shopping', label: '買い物', icon: '🛒', tab: 'errand', askPlace: true, span: true },
+  { kind: 'bank', label: '銀行', icon: '🏦', tab: 'errand', askPlace: true, span: true },
+  { kind: 'cityhall', label: '役所', icon: '🏛️', tab: 'errand', askPlace: true, span: true },
+  { kind: 'barber', label: '床屋', icon: '💈', tab: 'errand', askPlace: true, span: true },
   // form: 押したら開く入力欄(health = 体調、bowel = お通じのかたさ、weather = 天気と気温)
   { kind: 'health', label: '体調', icon: '🩺', tab: 'body', form: 'health' },
   { kind: 'bowel', label: 'お通じ', icon: '🚽', tab: 'body', form: 'bowel' },
   { kind: 'weather', label: '天気', icon: '🌤️', tab: 'body', form: 'weather' },
 ]
 const FORMS = ['health', 'bowel', 'weather']
+// 時間の長さ(span: true のボタンは、押すと始まり、終わりを押すまで「続いているもの」になる)
+// 組: このボタンを押すと、続いている〇〇を終える(就寝→起床 など)
+const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume'], break: ['resume'] }
+// 長さの呼び名(就寝の長さは「睡眠」など)
+const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務' }
+const fmtDur = (min) => { min = Math.max(0, Math.round(min)); const h2 = Math.floor(min / 60), m = min % 60; return h2 ? `${h2}時間${m ? `${m}分` : ''}` : `${m}分` }
+const durMin = (a, b) => (new Date(b) - new Date(a)) / 60000
+const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
 // ボタンに選べる絵(端末の絵文字。よそから読み込まない)
 const ICONS = ['⭐', '☀️', '🌙', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
   '🏥', '💊', '🪦', '🙏', '⛩️', '🛒', '🏦', '🏛️', '💈', '✂️', '🎣', '⛳', '🎤', '🎬', '🎵', '🍺', '🍜', '🍰', '🐕', '🌱',
@@ -97,6 +105,12 @@ async function loadButtons() {
         await putSetting('buttons', { ...v, buttons: BUTTONS, added: [...new Set([...added, ...ADDED_LATER])] })
       }
       // v0.8: 場所を測るボタン(最初の並びで測るもの)を、いちどだけ決める。そのあとは本人の設定のまま
+      const v3 = await getSetting('buttons')
+      if (!v3.spanAdded) {
+        const kinds = DEFAULT_BUTTONS.filter(b => b.span).map(b => b.kind)
+        BUTTONS = BUTTONS.map(b => (kinds.includes(b.kind) ? { ...b, span: true } : b))
+        await putSetting('buttons', { ...v3, buttons: BUTTONS, spanAdded: true })
+      }
       const v2 = await getSetting('buttons')
       if (!v2.placeAdded) {
         const kinds = DEFAULT_BUTTONS.filter(b => b.askPlace).map(b => b.kind)
@@ -125,10 +139,10 @@ async function loadLists() {
   } catch { /* なくても動く */ }
 }
 // ボタンの見た目以外に持つもの(保存・読み込みで残す)
-const btnExtra = (b) => ({ ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
+const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
 async function saveButtons(list) {
   BUTTONS = list
-  await putSetting('buttons', { buttons: list, added: ADDED_LATER, placeAdded: true, updated_at: stamp(new Date()) })
+  await putSetting('buttons', { buttons: list, added: ADDED_LATER, placeAdded: true, spanAdded: true, updated_at: stamp(new Date()) })
 }
 const MEMO = { kind: 'memo', label: 'メモ', icon: '✏️' }
 // 移動手段(いくつでも、押した順に並ぶ)
@@ -272,6 +286,11 @@ async function render() {
   const d = new Date(today + 'T00:00:00')
   $('#date').textContent = `${d.getMonth() + 1}月${d.getDate()}日(${WEEKDAY[d.getDay()]})`
   const list = await entriesOfDay(today)
+  // 前の日に始まって今日終わったもの(睡眠など)も、終えた記録のカードに出すため
+  const yday = dayOf(new Date(d.getTime() - 86400000))
+  ENDED = new Map()
+  for (const x of [...await entriesOfDay(yday), ...list]) if (x.end_by) ENDED.set(x.end_by, [...(ENDED.get(x.end_by) || []), x])
+  await renderOngoing()
   const nPhotos = list.reduce((a, e) => a + photosOf(e).length, 0)
   $('#count').textContent = list.length ? `記録 ${list.length}件${nPhotos ? ` ・ 写真 ${nPhotos}枚` : ''}` : ''
   try {
@@ -286,6 +305,40 @@ async function render() {
   if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest' })
 }
 
+let ENDED = new Map()
+// 続いているものの帯(下のボタンの上)
+async function renderOngoing() {
+  const box = $('#ongoing')
+  const list = await ongoingOf()
+  box.hidden = !list.length
+  const now = new Date()
+  box.replaceChildren(...list.map(e => {
+    const min = durMin(e.at, now)
+    return h('div', { class: 'og-item' + (min > 12 * 60 ? ' long' : '') },
+      h('span', { class: 'og-icon', 'aria-hidden': 'true', text: e.icon || (kindInfo(e.kind) || {}).icon || '・' }),
+      h('span', { class: 'og-text' }, h('strong', { text: SPAN_NAME[e.kind] || e.label }),
+        ` ${e.day !== dayOf(now) ? '前日 ' : ''}${hm(e.at)}〜(${fmtDur(min)}${min > 12 * 60 ? '・終わり忘れ?' : ''})`),
+      h('button', { type: 'button', class: 'og-end', text: '終わった', onclick: () => finishNow(e) }))
+  }))
+}
+// いま終える
+async function finishNow(e) {
+  const ts = stamp(new Date())
+  const cur = await getEntry(e.id)
+  if (!cur) return
+  await putEntry({ ...cur, end: ts, updated_at: ts })
+  await render()
+  showToast(`「${SPAN_NAME[e.kind] || e.label}」を終えました(${fmtDur(durMin(e.at, ts))})`, [
+    { label: '取り消す', fn: async () => { const c = await getEntry(e.id); if (c) { delete c.end; await putEntry(c); render() } } },
+  ])
+}
+// 時刻の欄の見せ方(長さのあるものは 始まり〜終わり)
+function timeCell(e) {
+  if (!e.span) return h('span', { class: 'tl-time', text: hm(e.at) })
+  const endTxt = e.end ? `〜${e.end.slice(0, 10) !== e.day ? '翌' : ''}${hm(e.end)}` : '〜'
+  return h('span', { class: 'tl-time' }, hm(e.at), h('span', { class: 'tl-end', text: endTxt }))
+}
+
 async function card(e) {
   const k = { icon: e.icon || (kindInfo(e.kind) || {}).icon || '・' }
   const isMemo = e.kind === 'memo'
@@ -298,6 +351,16 @@ async function card(e) {
       h('button', { type: 'button', class: 'tl-edit', 'aria-label': `${hm(e.at)} ${e.label} を直す`, text: '直す',
         onclick: (ev) => { ev.stopPropagation(); openEntry(e) } }),
     ))
+  if (e.span) {
+    const min = durMin(e.at, e.end || new Date())
+    body.append(h('p', { class: 'tl-dur' + (e.end ? '' : ' on') },
+      e.end ? `${SPAN_NAME[e.kind] ? `${SPAN_NAME[e.kind]} ` : ''}${fmtDur(min)}` : h('span', { class: 'live-dur', 'data-at': e.at, text: `続いています ・ ${fmtDur(min)}` }),
+      e.end ? null : h('button', { type: 'button', class: 'og-end small', text: '終わった', onclick: (ev) => { ev.stopPropagation(); finishNow(e) } })))
+  }
+  // この記録で終えたもの(起床 → 睡眠 など)
+  for (const x of ENDED.get(e.id) || []) {
+    body.append(h('p', { class: 'tl-dur' }, `${x.icon || ''} ${SPAN_NAME[x.kind] || x.label} ${x.day !== e.day ? '前日 ' : ''}${hm(x.at)}〜${hm(x.end)}(${fmtDur(durMin(x.at, x.end))})`))
+  }
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: projectText(e.project) }))
@@ -329,8 +392,8 @@ async function card(e) {
   }
   if (audiosOf(e).length) body.append(await audioList(audiosOf(e)))
   return h('li', { class: 'tl-item' },
-    h('span', { class: 'tl-time', text: hm(e.at) }),
-    h('span', { class: 'tl-dot' + (isMemo ? ' memo' : ''), 'aria-hidden': 'true' }),
+    timeCell(e),
+    h('span', { class: 'tl-dot' + (isMemo ? ' memo' : '') + (e.span ? ' span' : ''), 'aria-hidden': 'true' }),
     h('div', { class: 'tl-card', onclick: () => openEntry(e) }, body),
   )
 }
@@ -360,13 +423,24 @@ function pressButton(b) {
 async function quickRecord(b) {
   const now = new Date()
   const ts = stamp(now)
-  const e = { id: newId(), at: ts, day: dayOf(now), kind: b.kind, label: b.label, icon: b.icon, text: '', photos: [], created_at: ts, updated_at: ts }
+  const ongoing = await ongoingOf()
+  // 同じボタンが続いている途中なら、それを終える(もう一度押す=終わった)
+  const same = b.span ? ongoing.find(x => x.kind === b.kind) : null
+  if (same) { closeMovePick(); await finishNow(same); return }
+  const e = { id: newId(), at: ts, day: dayOf(now), kind: b.kind, label: b.label, icon: b.icon, text: '', photos: [], created_at: ts, updated_at: ts, ...(b.span ? { span: true } : {}) }
+  // 組になっているもの(就寝→起床 など)を終える
+  const ended = ongoing.filter(x => (END_BY[x.kind] || []).includes(b.kind))
+  for (const x of ended) await putEntry({ ...x, end: ts, end_by: e.id, updated_at: ts })
   await putEntry(e)
   if (navigator.vibrate) navigator.vibrate(15)
   await render()
-  showToast(`${hm(e.at)} 「${b.label}」を記録しました`, [
+  const endTxt = ended.map(x => `「${SPAN_NAME[x.kind] || x.label}」${fmtDur(durMin(x.at, ts))}`).join('・')
+  showToast(`${hm(e.at)} 「${b.label}」を${b.span ? '始めました' : '記録しました'}${endTxt ? `(${endTxt}を終えました)` : ''}`, [
     { label: '書き足す', fn: () => { closeMovePick(); openEditor(e.id) } },
-    { label: '取り消す', fn: async () => { closeMovePick(); await deleteEntry(e.id); render() } },
+    { label: '取り消す', fn: async () => {
+      closeMovePick(); await deleteEntry(e.id)
+      for (const x of ended) { const c = await getEntry(x.id); if (c) { delete c.end; delete c.end_by; await putEntry(c) } }
+      render() } },
   ])
   if (b.askMove || b.askProject || b.form === 'bowel' || b.askPlace) openMovePick(e, b)
   else closeMovePick()
@@ -536,6 +610,13 @@ async function openEditor(id, preset = {}) {
   nowTag.hidden = !st.timeIsNow
   const onTime = () => { st.timeIsNow = false; nowTag.hidden = true }
   dayIn.addEventListener('change', onTime); timeIn.addEventListener('change', onTime)
+  // 終わり(長さのある記録。空なら「続いています」、時刻だけの記録なら空のまま)
+  const endDayIn = h('input', { type: 'date', class: 'input', value: editing && editing.end ? editing.end.slice(0, 10) : '', 'aria-label': '終わりの日付' })
+  const endTimeIn = h('input', { type: 'time', class: 'input', value: editing && editing.end ? editing.end.slice(11, 16) : '', 'aria-label': '終わりの時刻' })
+  endTimeIn.addEventListener('change', () => { if (!endDayIn.value) endDayIn.value = st.timeIsNow ? dayOf(new Date()) : dayIn.value })
+  const endBox = h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '終わり(長さのあるもの。空なら「続いています」)' }), endDayIn, endTimeIn,
+    h('button', { type: 'button', class: 'small-btn', text: 'いま', onclick: () => { const n = new Date(); endDayIn.value = dayOf(n); endTimeIn.value = `${pad(n.getHours())}:${pad(n.getMinutes())}` } }),
+    h('button', { type: 'button', class: 'small-btn', text: '空にする', onclick: () => { endDayIn.value = ''; endTimeIn.value = '' } }))
 
   // 種類
   const kindBox = h('div', { class: 'kind-groups', role: 'group', 'aria-label': '種類' })
@@ -663,6 +744,17 @@ async function openEditor(id, preset = {}) {
     if (bw) e.bowel = bw
     if (!e.loc) delete e.loc
     if (!e.place) delete e.place
+    // 長さ: 終わりを入れたら長さのある記録にする。新しい記録で、長さのボタンなら続いているものにする
+    if (endTimeIn.value) {
+      const end = `${endDayIn.value || day}T${endTimeIn.value}:${editing && editing.end && editing.end.slice(0, 16) === `${endDayIn.value || day}T${endTimeIn.value}` ? editing.end.slice(17, 19) : '00'}`
+      if (end <= e.at) { msg.textContent = '終わりは始まりより後にしてください'; return }
+      e.span = true; e.end = end
+    } else {
+      delete e.end
+      if (!editing) { if (k.span) e.span = true; else delete e.span }
+      else if (!editing.span) delete e.span
+      // 直していて終わりを空にした: 長さのボタンなら「続いています」に戻る
+    }
     await putEntry(e)
     for (const pid of removed) await deletePhoto(pid)
     for (const aid of removedA) await deleteAudio(aid)
@@ -686,7 +778,8 @@ async function openEditor(id, preset = {}) {
       h('h2', { text: editing ? '記録を直す' : '書く' }),
       h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: () => close(false) })),
     h('div', { class: 'sheet-body' },
-      h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '時刻' }), dayIn, timeIn, nowTag),
+      h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '時刻(始まり)' }), dayIn, timeIn, nowTag),
+      endBox,
       h('div', {}, h('span', { class: 'ed-label', text: '場所' }), placeBox),
       h('div', {}, h('span', { class: 'ed-label', text: '種類' }), kindBox),
       secHealth, secBowel, secWeather,
@@ -787,6 +880,8 @@ async function planImport(file) {
     const e = { ...raw, health: obj(raw.health), weather: obj(raw.weather), bowel: obj(raw.bowel), audios: Array.isArray(raw.audios) ? raw.audios.filter(a => typeof a === 'string') : [], at, day: at.slice(0, 10), kind: raw.kind || 'memo', text: textOf(raw), photos: Array.isArray(raw.photos) ? raw.photos.filter(p => typeof p === 'string') : [], moves: Array.isArray(raw.moves) ? raw.moves.filter(k => MOVE_BY[k]) : [], project: raw.project && typeof raw.project.title === 'string' ? { title: raw.project.title, step: typeof raw.project.step === 'string' ? raw.project.step : '' } : null }
     delete e.note
     for (const k of ['health', 'weather', 'bowel']) if (e[k] === undefined) delete e[k]
+    if (e.end != null && !(AT_RE.test(e.end) && e.end > e.at)) delete e.end
+    if (e.span !== true) delete e.span
     const now = await getEntry(e.id)
     if (!now) plan.add.push(e)
     else if ((e.updated_at || e.at) > (now.updated_at || now.at)) plan.replace.push(e)
@@ -1073,6 +1168,9 @@ function openButtonSettings() {
       same.forEach((b, i) => {
         const name = h('input', { class: 'input bs-name', value: b.label, maxlength: '12', 'aria-label': `${b.label || '新しいボタン'}の名前` })
         name.addEventListener('input', () => { b.label = name.value })
+        const spanC = h('input', { type: 'checkbox' })
+        spanC.checked = !!b.span
+        spanC.addEventListener('change', () => { b.span = spanC.checked })
         const askL = h('input', { type: 'checkbox' })
         askL.checked = !!b.askPlace
         askL.addEventListener('change', () => { b.askPlace = askL.checked })
@@ -1094,7 +1192,7 @@ function openButtonSettings() {
             h('button', { type: 'button', class: 'bs-op del', 'aria-label': `${b.label}を消す`, text: '消す', onclick: () => {
               if (!confirm(`「${b.label || '新しいボタン'}」を消しますか?(記録した分は残ります)`)) return
               list = list.filter(x => x !== b); paint() } })),
-          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'),
+          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'),
             h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く'), tabSel))
         sec.append(row)
         if (pickFor === b.kind) {
@@ -1156,7 +1254,7 @@ async function main() {
   $('#ios-install').hidden = !(isIOS() && !isStandalone())
   await render()
   askPersist().then(ok => { $('#persist').textContent = ok ? '・ 消されない設定' : '' })
-  setInterval(() => { if (dayOf(new Date()) !== today && $('#sheet').hidden) render() }, 60 * 1000)
+  setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `続いています ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }) } }, 60 * 1000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render() })
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* なくても動く */ })
