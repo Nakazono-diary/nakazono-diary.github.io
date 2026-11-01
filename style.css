@@ -254,3 +254,21 @@ button, input, textarea { font: inherit; color: inherit; }
 .tide-tick { font-size: 9px; fill: var(--muted); text-anchor: middle; }
 @media (prefers-color-scheme: dark) { .ky-big { color: #fdba74; } .ky-hol { color: #f87171; } .ky-sekki { color: #4ade80; } .ky-good { color: #facc15; } }
 .tabs .tab { font-size: 13px; }
+
+/* v0.8: 場所 */
+.top-btns { display: grid; grid-template-columns: auto auto; gap: 6px; }
+.top-btns #export { grid-column: 1 / -1; }
+.tl-place { margin: 6px 0 0; font-size: 14px; font-weight: 700; color: #15803d; }
+.tl-place.none { color: var(--muted); font-weight: 500; font-size: 13px; }
+@media (prefers-color-scheme: dark) { .tl-place { color: #4ade80; } }
+.mp-place { margin-bottom: 4px; }
+.mp-status { margin: 4px 0; font-size: 14px; }
+.mp-status.ok { color: #15803d; font-weight: 700; }
+.mp-status.err { color: var(--danger); }
+.ed-place { display: flex; flex-direction: column; gap: 6px; }
+.hint.strong { color: var(--accent); font-weight: 700; }
+.pl-row { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.pl-top { display: flex; align-items: center; gap: 8px; }
+.pl-top .input { flex: 1; min-width: 0; font-weight: 700; }
+.pl-icon { font-size: 20px; }
+.pl-sub { display: flex; align-items: center; gap: 10px; font-size: 13px; }

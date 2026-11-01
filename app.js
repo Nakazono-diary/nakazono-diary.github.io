@@ -5,19 +5,20 @@ import { blobToDataURL, shrinkPhoto } from './photo.js'
 import { h } from './dom.js'
 import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLines, recorderButton, weatherForm, weatherText } from './body.js'
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
+import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.7.0'
+const VERSION = '0.8.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
 const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'errand', label: '用事' }, { key: 'body', label: '体調・天気' }]
 const DEFAULT_BUTTONS = [
-  { kind: 'wake', label: '起床', icon: '☀️', tab: 'flow' },
-  { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true },
-  { kind: 'reach', label: '到着', icon: '📍', tab: 'flow' },
-  { kind: 'arrive', label: '出社', icon: '🏢', tab: 'flow' },
-  { kind: 'out', label: '退社', icon: '🌆', tab: 'flow', askMove: true },
-  { kind: 'home', label: '帰宅', icon: '🏠', tab: 'flow' },
+  { kind: 'wake', label: '起床', icon: '☀️', tab: 'flow', askPlace: true },
+  { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true, askPlace: true },
+  { kind: 'reach', label: '到着', icon: '📍', tab: 'flow', askPlace: true },
+  { kind: 'arrive', label: '出社', icon: '🏢', tab: 'flow', askPlace: true },
+  { kind: 'out', label: '退社', icon: '🌆', tab: 'flow', askMove: true, askPlace: true },
+  { kind: 'home', label: '帰宅', icon: '🏠', tab: 'flow', askPlace: true },
   { kind: 'sleep', label: '就寝', icon: '🌙', tab: 'flow' },
   { kind: 'meal', label: '食事', icon: '🍽️', tab: 'flow' },
   { kind: 'work', label: '作業', icon: '💻', tab: 'do', askProject: true },
@@ -29,12 +30,12 @@ const DEFAULT_BUTTONS = [
   { kind: 'game', label: 'ゲーム', icon: '🎮', tab: 'do' },
   { kind: 'hobby', label: '趣味', icon: '🎨', tab: 'do' },
   { kind: 'fitness', label: 'フィットネス', icon: '🏋️', tab: 'do' },
-  { kind: 'hospital', label: '病院', icon: '🏥', tab: 'errand' },
-  { kind: 'grave', label: 'お墓参り', icon: '🪦', tab: 'errand' },
-  { kind: 'shopping', label: '買い物', icon: '🛒', tab: 'errand' },
-  { kind: 'bank', label: '銀行', icon: '🏦', tab: 'errand' },
-  { kind: 'cityhall', label: '役所', icon: '🏛️', tab: 'errand' },
-  { kind: 'barber', label: '床屋', icon: '💈', tab: 'errand' },
+  { kind: 'hospital', label: '病院', icon: '🏥', tab: 'errand', askPlace: true },
+  { kind: 'grave', label: 'お墓参り', icon: '🪦', tab: 'errand', askPlace: true },
+  { kind: 'shopping', label: '買い物', icon: '🛒', tab: 'errand', askPlace: true },
+  { kind: 'bank', label: '銀行', icon: '🏦', tab: 'errand', askPlace: true },
+  { kind: 'cityhall', label: '役所', icon: '🏛️', tab: 'errand', askPlace: true },
+  { kind: 'barber', label: '床屋', icon: '💈', tab: 'errand', askPlace: true },
   // form: 押したら開く入力欄(health = 体調、bowel = お通じのかたさ、weather = 天気と気温)
   { kind: 'health', label: '体調', icon: '🩺', tab: 'body', form: 'health' },
   { kind: 'bowel', label: 'お通じ', icon: '🚽', tab: 'body', form: 'bowel' },
@@ -95,6 +96,13 @@ async function loadButtons() {
         }
         await putSetting('buttons', { ...v, buttons: BUTTONS, added: [...new Set([...added, ...ADDED_LATER])] })
       }
+      // v0.8: 場所を測るボタン(最初の並びで測るもの)を、いちどだけ決める。そのあとは本人の設定のまま
+      const v2 = await getSetting('buttons')
+      if (!v2.placeAdded) {
+        const kinds = DEFAULT_BUTTONS.filter(b => b.askPlace).map(b => b.kind)
+        BUTTONS = BUTTONS.map(b => (kinds.includes(b.kind) ? { ...b, askPlace: true } : b))
+        await putSetting('buttons', { ...v2, buttons: BUTTONS, placeAdded: true })
+      }
     }
   } catch { /* なければ最初のまま */ }
 }
@@ -105,18 +113,22 @@ const LISTS = {
   async save(key, list) { LISTS[key] = list; await putSetting(key, list) },
 }
 let TIDE = null
+// 登録した場所 { id, name, addr, lat, lon, r(メートル) }
+let PLACES = []
+async function savePlaces(list) { PLACES = list; await putSetting('places', list) }
 async function loadLists() {
   try {
+    const pl = await getSetting('places'); if (Array.isArray(pl)) PLACES = pl
     const m = await getSetting('meds'); if (Array.isArray(m)) LISTS.meds = m
     const sy = await getSetting('symptoms'); if (Array.isArray(sy)) LISTS.symptoms = sy
     TIDE = await getSetting('tide')
   } catch { /* なくても動く */ }
 }
 // ボタンの見た目以外に持つもの(保存・読み込みで残す)
-const btnExtra = (b) => ({ ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
+const btnExtra = (b) => ({ ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
 async function saveButtons(list) {
   BUTTONS = list
-  await putSetting('buttons', { buttons: list, added: ADDED_LATER, updated_at: stamp(new Date()) })
+  await putSetting('buttons', { buttons: list, added: ADDED_LATER, placeAdded: true, updated_at: stamp(new Date()) })
 }
 const MEMO = { kind: 'memo', label: 'メモ', icon: '✏️' }
 // 移動手段(いくつでも、押した順に並ぶ)
@@ -169,6 +181,48 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 const textOf = (e) => e.text || e.note || ''
 const photosOf = (e) => e.photos || []
 const audiosOf = (e) => e.audios || []
+// 記録の場所の名前(登録の名前を変えたら、新しい名前で出す)
+const placeName = (e) => {
+  if (!e.place) return ''
+  const p = PLACES.find(x => x.id === e.place.id)
+  return p ? p.name : e.place.name || ''
+}
+// 新しく場所を登録して、その範囲にある名前のない記録にも付ける
+async function registerPlace(loc, name, addr = '') {
+  const p = { id: newId(), name, addr, lat: loc.lat, lon: loc.lon, r: 150, created_at: stamp(new Date()) }
+  await savePlaces([...PLACES, p])
+  let n = 0
+  for (const e of await allEntries()) {
+    if (e.loc && !e.place && distance(e.loc, p) <= p.r) { await putEntry({ ...e, place: { id: p.id, name: p.name } }); n++ }
+  }
+  return { place: p, applied: n }
+}
+// 名前を付ける欄(位置はあるが登録の場所がないとき)
+function placeNamer(loc, onDone) {
+  const inp = h('input', { class: 'input add-in', maxlength: '30', placeholder: '例: 自宅、大和設計、〇〇病院', 'aria-label': 'この場所の名前' })
+  const go = async () => {
+    const name = inp.value.trim()
+    if (!name) { inp.focus(); return }
+    const r = await registerPlace(loc, name)
+    onDone(r.place)
+  }
+  inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); go() } })
+  return h('div', { class: 'add-row' }, inp, h('button', { type: 'button', class: 'small-btn', text: '名前を付ける', onclick: go }))
+}
+// 登録した場所から選ぶ(近い順。位置がなければ名前順)
+function placeSelect(value, loc, onChange) {
+  const list = [...PLACES].sort((a, b) => (loc ? distance(loc, a) - distance(loc, b) : a.name.localeCompare(b.name, 'ja')))
+  const sel = h('select', { class: 'input pj-sel', 'aria-label': '登録した場所から選ぶ' },
+    h('option', { value: '', text: PLACES.length ? '場所なし(登録した場所から選ぶ)' : 'まだ登録した場所がありません' }),
+    ...list.map(p => h('option', { value: p.id, text: loc ? `${p.name}(${fmtDist(distance(loc, p))})` : p.name })))
+  if (value && value.id && !PLACES.some(p => p.id === value.id)) sel.append(h('option', { value: value.id, text: `${value.name}(登録を消した場所)` }))
+  sel.value = value ? value.id : ''
+  sel.addEventListener('change', () => {
+    const p = PLACES.find(x => x.id === sel.value)
+    onChange(p ? { id: p.id, name: p.name } : sel.value && value ? value : null)
+  })
+  return sel
+}
 
 const draft = {
   get() { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null') } catch { return null } },
@@ -244,6 +298,8 @@ async function card(e) {
       h('button', { type: 'button', class: 'tl-edit', 'aria-label': `${hm(e.at)} ${e.label} を直す`, text: '直す',
         onclick: (ev) => { ev.stopPropagation(); openEditor(e.id) } }),
     ))
+  if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
+  else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: projectText(e.project) }))
   if (movesOf(e).length) body.append(h('p', { class: 'tl-moves', text: movesText(movesOf(e)) }))
   for (const line of healthLines(e.health)) body.append(h('p', { class: 'tl-health', text: line }))
@@ -312,7 +368,7 @@ async function quickRecord(b) {
     { label: '書き足す', fn: () => { closeMovePick(); openEditor(e.id) } },
     { label: '取り消す', fn: async () => { closeMovePick(); await deleteEntry(e.id); render() } },
   ])
-  if (b.askMove || b.askProject || b.form === 'bowel') openMovePick(e, b)
+  if (b.askMove || b.askProject || b.form === 'bowel' || b.askPlace) openMovePick(e, b)
   else closeMovePick()
 }
 
@@ -326,6 +382,29 @@ function openMovePick(e, b) {
     render()
   }
   const parts = []
+  if (b.askPlace) {
+    // 位置を測って、登録の場所なら名前を付ける。なければ名前を付ける欄を出す
+    const placeBox = h('div', { class: 'mp-place' }, h('p', { class: 'mp-status', text: '📍 場所を測っています…' }))
+    parts.push(placeBox)
+    measure().then(async (r) => {
+      if (!box.contains(placeBox)) { if (r.loc) { const now = await getEntry(e.id); if (now) { const p = matchPlace(r.loc, PLACES); await putEntry({ ...now, loc: r.loc, ...(p ? { place: { id: p.id, name: p.name } } : {}) }); render() } } return }
+      if (r.error) {
+        placeBox.replaceChildren(...[h('p', { class: 'mp-status err', text: `📍 ${r.error}` }),
+          PLACES.length ? placeSelect(null, null, (pl) => update({ place: pl })) : null].filter(Boolean))
+        return
+      }
+      const p = matchPlace(r.loc, PLACES)
+      await update({ loc: r.loc, ...(p ? { place: { id: p.id, name: p.name } } : {}) })
+      if (p) {
+        placeBox.replaceChildren(h('p', { class: 'mp-status ok', text: `📍 ${p.name}(誤差 ±${r.loc.acc}m)` }),
+          h('button', { type: 'button', class: 'link-btn small', text: 'ちがう場所を選ぶ', onclick: () => placeBox.append(placeSelect({ id: p.id, name: p.name }, r.loc, (pl) => update({ place: pl }))) }))
+      } else {
+        placeBox.replaceChildren(...[h('p', { class: 'mp-status', text: `📍 登録していない場所です(誤差 ±${r.loc.acc}m)。名前を付けると、次からは自動で出ます。` }),
+          placeNamer(r.loc, async (pl) => { await update({ place: { id: pl.id, name: pl.name } }); placeBox.replaceChildren(h('p', { class: 'mp-status ok', text: `📍 「${pl.name}」を登録しました` })) }),
+          PLACES.length ? placeSelect(null, r.loc, (pl) => update({ place: pl })) : null].filter(Boolean))
+      }
+    })
+  }
   if (b.askProject) parts.push(h('p', { class: 'mp-label', text: '件名・工程は?' }), projectPicker(null, (pj) => update({ project: pj })))
   if (b.askMove) parts.push(h('p', { class: 'mp-label', text: '移動手段は?' }), movePicker([], (keys) => update({ moves: [...keys] })))
   if (b.form === 'bowel') parts.push(h('p', { class: 'mp-label', text: 'かたさは?' }), bowelPicker(null, (bw) => update({ bowel: bw })))
@@ -361,6 +440,8 @@ async function openEditor(id, preset = {}) {
     moves: editing ? [...movesOf(editing)] : [],
     project: editing && editing.project ? { ...editing.project } : null,
     audios: editing ? [...audiosOf(editing)] : [],
+    loc: editing && editing.loc ? { ...editing.loc } : null,
+    place: editing && editing.place ? { ...editing.place } : null,
   }
   const added = []      // この窓で足した写真(やめたら消す)
   const removed = []    // この窓で外した写真(保存したら消す)
@@ -399,6 +480,29 @@ async function openEditor(id, preset = {}) {
     const list = BUTTONS.filter(b => b.tab === t.key)
     if (list.length) kindBox.append(h('p', { class: 'kind-tab', text: t.label }), h('div', { class: 'kinds' }, ...list.map(kindBtn)))
   }
+
+  // 場所(登録した場所から選ぶ・いまの場所を測る・名前を付ける)
+  const placeBox = h('div', { class: 'ed-place' })
+  const paintPlace = (note = '') => {
+    const kids = [placeSelect(st.place, st.loc, (pl) => { st.place = pl; paintPlace() })]
+    if (st.loc && !st.place) kids.push(h('p', { class: 'hint', text: `この記録には位置があります(誤差 ±${st.loc.acc || '?'}m)。名前を付けると登録され、近くのほかの記録にも付きます。` }),
+      placeNamer(st.loc, (pl) => { st.place = { id: pl.id, name: pl.name }; paintPlace(`「${pl.name}」を登録しました`) }))
+    kids.push(h('div', { class: 'add-row' },
+      h('button', { type: 'button', class: 'small-btn', text: st.loc ? '📍 位置を測り直す' : '📍 いまの場所を測る', onclick: async (ev) => {
+        ev.currentTarget.disabled = true
+        paintPlace('測っています…')
+        const r = await measure()
+        if (r.error) { paintPlace(r.error); return }
+        st.loc = r.loc
+        const p = matchPlace(r.loc, PLACES)
+        st.place = p ? { id: p.id, name: p.name } : null
+        paintPlace(p ? `「${p.name}」でした` : '登録していない場所でした')
+      } }),
+      st.loc ? h('button', { type: 'button', class: 'small-btn', text: '位置を外す', onclick: () => { st.loc = null; paintPlace() } }) : null))
+    if (note) kids.push(h('p', { class: 'hint strong', text: note }))
+    placeBox.replaceChildren(...kids)
+  }
+  paintPlace()
 
   // 体調・お通じ・天気
   const hf = healthForm(editing && editing.health, LISTS)
@@ -476,12 +580,14 @@ async function openEditor(id, preset = {}) {
     const day = st.timeIsNow ? dayOf(new Date()) : (dayIn.value || today)
     const e = {
       ...(editing || {}), id: editing ? editing.id : newId(), at: `${day}T${t}`, day, kind: k.kind, label: k.label, icon: k.icon,
-      text, photos: st.photos, moves: [...st.moves], project: st.project, audios: st.audios, created_at: editing ? editing.created_at || ts : ts, updated_at: ts,
+      text, photos: st.photos, moves: [...st.moves], project: st.project, audios: st.audios, loc: st.loc, place: st.place, created_at: editing ? editing.created_at || ts : ts, updated_at: ts,
     }
     delete e.note; delete e.health; delete e.weather; delete e.bowel
     if (health) e.health = health
     if (weather) e.weather = weather
     if (bw) e.bowel = bw
+    if (!e.loc) delete e.loc
+    if (!e.place) delete e.place
     await putEntry(e)
     for (const pid of removed) await deletePhoto(pid)
     for (const aid of removedA) await deleteAudio(aid)
@@ -506,6 +612,7 @@ async function openEditor(id, preset = {}) {
       h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: () => close(false) })),
     h('div', { class: 'sheet-body' },
       h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '時刻' }), dayIn, timeIn, nowTag),
+      h('div', {}, h('span', { class: 'ed-label', text: '場所' }), placeBox),
       h('div', {}, h('span', { class: 'ed-label', text: '種類' }), kindBox),
       secHealth, secBowel, secWeather,
       h('div', {}, h('span', { class: 'ed-label', text: '件名・工程(タスク管理の件名リストから)' }), projectPicker(st.project, (pj) => { st.project = pj })),
@@ -556,7 +663,7 @@ async function exportFile(btn) {
       if (a) audios[aid] = { mime: a.mime, sec: a.sec, created_at: a.created_at, data: await blobToDataURL(a.blob) }
     }
     const data = { app: 'diary', format: 3, version: VERSION, exported_at: stamp(new Date()), entries, photos, audios, buttons: BUTTONS,
-      lists: { meds: LISTS.meds, symptoms: LISTS.symptoms } }
+      lists: { meds: LISTS.meds, symptoms: LISTS.symptoms }, places: PLACES }
     const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' })
     const a = h('a', { href: URL.createObjectURL(blob), download: `diary-${dayOf(new Date())}.json` })
     document.body.append(a)
@@ -623,6 +730,9 @@ async function planImport(file) {
     const add = (Array.isArray(L[key]) ? L[key] : []).filter(x => typeof x === 'string' && x.trim() && !LISTS[key].includes(x))
     if (add.length) plan.lists[key] = add
   }
+  // 登録した場所は、ないもの(同じ id がないもの)だけ足す
+  plan.places = (Array.isArray(data.places) ? data.places : []).filter(p => p && typeof p.id === 'string' && typeof p.name === 'string' && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !PLACES.some(x => x.id === p.id))
+    .map(p => ({ id: p.id, name: p.name.slice(0, 30), addr: typeof p.addr === 'string' ? p.addr.slice(0, 100) : '', lat: p.lat, lon: p.lon, r: Number.isFinite(p.r) ? p.r : 150, created_at: p.created_at || '' }))
   return plan
 }
 
@@ -654,6 +764,7 @@ async function applyImport(plan) {
     await putEntry({ ...e, photos: keep, audios: keepA })
   }
   for (const [key, add] of Object.entries(plan.lists || {})) await LISTS.save(key, [...LISTS[key], ...add])
+  if (plan.places && plan.places.length) await savePlaces([...PLACES, ...plan.places])
   return photos
 }
 
@@ -751,7 +862,7 @@ function openBackup() {
     let plan
     try { plan = await planImport(f) } catch (err) { msg.className = 'bk-msg err'; msg.textContent = err.message || String(err); return }
     const n = plan.add.length + plan.replace.length
-    const go = n || plan.buttons.length || plan.buttonsAll
+    const go = n || plan.buttons.length || plan.buttonsAll || (plan.places && plan.places.length)
     msg.textContent = ''
     const lines = [
       `ファイル: ${f.name}${plan.exported_at ? `(${plan.exported_at.slice(0, 16).replace('T', ' ')} に書き出したもの)` : ''}`,
@@ -760,6 +871,7 @@ function openBackup() {
       `すでにあるので、そのままにする記録: ${plan.same}件`,
       `新しく足す写真: ${plan.photos}枚`,
       plan.audios ? `新しく足す録音: ${plan.audios}本` : null,
+      plan.places && plan.places.length ? `足す場所: ${plan.places.map(p => p.name).join('・')}` : null,
       plan.buttonsAll ? 'ボタン: ファイルの並び・名前に入れ替えます(まだボタンを変えていないため)' : null,
       plan.buttons.length ? `足すボタン: ${plan.buttons.map(b => b.label).join('・')}` : null,
       plan.bad ? `読めなかった記録: ${plan.bad}件(飛ばします)` : null,
@@ -789,7 +901,7 @@ function openBackup() {
       h('section', { class: 'bk-card' },
         h('h3', { text: 'ファイルに書き出す' }),
         h('p', { text: '記録を文章・写真・録音ごと1つのファイル(.json)にします。ときどき書き出して、PC などに移しておくと安心です。' }),
-        h('p', { class: 'warn-note', text: '体調の記録も入るので、ファイルは人に渡さないでください。' }),
+        h('p', { class: 'warn-note', text: '体調の記録や、行った場所の位置も入るので、ファイルは人に渡さないでください。' }),
         expBtn),
       h('section', { class: 'bk-card' },
         h('h3', { text: 'ファイルから読み込む' }),
@@ -805,6 +917,59 @@ function openBackup() {
         h('p', { text: 'このスマホのブラウザの中(この住所専用の保存場所)だけにあります。どこにも送っていません。' }),
         h('p', { text: 'ブラウザの「サイトのデータを削除」、アプリの削除、機種変更・初期化で消えます。その前に書き出してください。' })),
     )))
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+}
+
+// ---------- 場所の一覧(名前・住所・範囲を直す、消す、いまの場所を登録) ----------
+async function openPlaces() {
+  const sheet = $('#sheet')
+  const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll'); render() }
+  const body = h('div', { class: 'sheet-body' })
+  const msg = h('p', { class: 'bk-msg', 'aria-live': 'polite' })
+  const all = await allEntries()
+  const count = (p) => all.filter(e => e.place && e.place.id === p.id).length
+  const paint = () => {
+    const rows = PLACES.map(p => {
+      const name = h('input', { class: 'input', value: p.name, maxlength: '30', 'aria-label': `${p.name}の名前` })
+      const addr = h('input', { class: 'input', value: p.addr || '', maxlength: '100', placeholder: '住所(自分で書く。なくてもよい)', 'aria-label': `${p.name}の住所` })
+      const r = h('select', { class: 'input bs-tabsel', 'aria-label': `${p.name}の範囲` }, ...RADII.map(x => h('option', { value: String(x), text: `半径 ${fmtDist(x)}` })))
+      r.value = String(p.r || 150)
+      const save = async () => {
+        const nm = name.value.trim()
+        if (!nm) { msg.className = 'bk-msg err'; msg.textContent = '名前が空です'; return }
+        await savePlaces(PLACES.map(x => (x.id === p.id ? { ...x, name: nm, addr: addr.value.trim(), r: Number(r.value) } : x)))
+        msg.className = 'bk-msg ok'; msg.textContent = `「${nm}」を保存しました`
+      }
+      name.addEventListener('change', save); addr.addEventListener('change', save); r.addEventListener('change', save)
+      const n = count(p)
+      return h('section', { class: 'pl-row' },
+        h('div', { class: 'pl-top' }, h('span', { class: 'pl-icon', 'aria-hidden': 'true', text: '📍' }), name),
+        addr,
+        h('div', { class: 'pl-sub' }, r, h('span', { class: 'muted', text: `記録 ${n}件` }), h('span', { class: 'spacer' }),
+          h('button', { type: 'button', class: 'bs-op del', text: '消す', onclick: async () => {
+            if (!confirm(`「${p.name}」の登録を消しますか?(記録は消えません。記録には名前だけ残ります)`)) return
+            await savePlaces(PLACES.filter(x => x.id !== p.id)); paint() } })))
+    })
+    body.replaceChildren(
+      h('p', { class: 'hint', text: '名前を付けた場所の近くでボタンを押すと、その名前が自動で付きます。位置はスマホの中だけにしまい、地図や住所を調べるサービスには送りません。' }),
+      h('button', { type: 'button', class: 'secondary-btn', text: '📍 いまの場所を登録する', onclick: async (ev) => {
+        const btn = ev.currentTarget; btn.disabled = true
+        msg.className = 'bk-msg'; msg.textContent = '測っています…'
+        const r = await measure()
+        btn.disabled = false
+        if (r.error) { msg.className = 'bk-msg err'; msg.textContent = r.error; return }
+        const near = matchPlace(r.loc, PLACES)
+        msg.textContent = near ? `いまは「${near.name}」の範囲の中です。別の名前で登録するなら、下に書いてください。` : `測れました(誤差 ±${r.loc.acc}m)。名前を付けてください。`
+        msg.after(placeNamer(r.loc, (pl) => { msg.className = 'bk-msg ok'; msg.textContent = `「${pl.name}」を登録しました`; paint() }))
+      } }),
+      msg,
+      ...(rows.length ? rows : [h('p', { class: 'muted', text: 'まだ登録した場所がありません。' })]))
+  }
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '場所' },
+    h('div', { class: 'sheet-top' }, h('h2', { text: '場所' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
+    body))
+  paint()
   sheet.hidden = false
   document.body.classList.add('no-scroll')
 }
@@ -833,6 +998,9 @@ function openButtonSettings() {
       same.forEach((b, i) => {
         const name = h('input', { class: 'input bs-name', value: b.label, maxlength: '12', 'aria-label': `${b.label || '新しいボタン'}の名前` })
         name.addEventListener('input', () => { b.label = name.value })
+        const askL = h('input', { type: 'checkbox' })
+        askL.checked = !!b.askPlace
+        askL.addEventListener('change', () => { b.askPlace = askL.checked })
         const askP = h('input', { type: 'checkbox' })
         askP.checked = !!b.askProject
         askP.addEventListener('change', () => { b.askProject = askP.checked })
@@ -851,7 +1019,7 @@ function openButtonSettings() {
             h('button', { type: 'button', class: 'bs-op del', 'aria-label': `${b.label}を消す`, text: '消す', onclick: () => {
               if (!confirm(`「${b.label || '新しいボタン'}」を消しますか?(記録した分は残ります)`)) return
               list = list.filter(x => x !== b); paint() } })),
-          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'),
+          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'),
             h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く'), tabSel))
         sec.append(row)
         if (pickFor === b.kind) {
@@ -907,6 +1075,7 @@ async function main() {
   $('#write').addEventListener('click', () => { closeMovePick(); openEditor(null) })
   $('#record').addEventListener('click', () => { closeMovePick(); openEditor(null, { kind: 'memo', record: true }) })
   $('#btnset').addEventListener('click', () => { closeMovePick(); openButtonSettings() })
+  $('#places').addEventListener('click', () => { closeMovePick(); openPlaces() })
   $('#export').addEventListener('click', openBackup)
   $('#version').textContent = `v${VERSION}`
   $('#ios-install').hidden = !(isIOS() && !isStandalone())
