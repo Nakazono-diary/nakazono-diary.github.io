@@ -3,7 +3,7 @@
 import { allEntries, askPersist, deleteEntry, deletePhoto, entriesOfDay, getEntry, getPhoto, putEntry, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 
-const VERSION = '0.4.0'
+const VERSION = '0.4.1'
 
 // ボタン(仕様書 20 の案。あとで本人と最終版を決める)
 const BUTTONS = [
@@ -21,7 +21,8 @@ const MEMO = { kind: 'memo', label: 'メモ', icon: '✏️' }
 const MOVES = [
   { key: 'walk', label: '徒歩', icon: '🚶' }, { key: 'run', label: '走る', icon: '🏃' }, { key: 'swim', label: '泳ぐ', icon: '🏊' },
   { key: 'bike', label: '自転車', icon: '🚲' }, { key: 'moto', label: 'バイク', icon: '🛵' }, { key: 'car', label: '車', icon: '🚗' },
-  { key: 'train', label: '電車', icon: '🚃' }, { key: 'bus', label: 'バス', icon: '🚌' }, { key: 'taxi', label: 'タクシー', icon: '🚕' },
+  { key: 'train', label: '電車', icon: '🚃' }, { key: 'subway', label: '地下鉄', icon: '🚇' }, { key: 'shinkansen', label: '新幹線', icon: '🚄' },
+  { key: 'maglev', label: 'リニア', icon: '🚅' }, { key: 'bus', label: 'バス', icon: '🚌' }, { key: 'taxi', label: 'タクシー', icon: '🚕' },
   { key: 'ship', label: '船', icon: '⛴️' }, { key: 'plane', label: '飛行機', icon: '✈️' }, { key: 'other', label: 'その他', icon: '🧭' },
 ]
 const MOVE_BY = Object.fromEntries(MOVES.map(m => [m.key, m]))
