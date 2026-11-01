@@ -21,8 +21,7 @@
 <body>
   <header class="top">
     <div class="top-row">
-      <h1 id="date">…</h1>
-      <span id="count" class="muted"></span>
+      <div><h1 id="date">…</h1><span id="count" class="muted"></span></div>
       <span class="spacer"></span>
       <button type="button" id="export" class="small-btn" title="記録を全部ファイルに保存します(バックアップ)">ファイルに書き出す</button>
     </div>
@@ -40,19 +39,21 @@
 
   <main class="main">
     <div id="error" class="error" hidden></div>
-    <p id="empty" class="empty" hidden>まだ記録がありません。下のボタンを押すと、押した時刻で記録されます。</p>
+    <p id="empty" class="empty" hidden>まだ記録がありません。下のボタンを押すと、押した時刻で記録されます。文章や写真は「書く」から入れられます。</p>
     <ol id="timeline" class="timeline" aria-label="今日のタイムライン"></ol>
   </main>
 
-  <div id="toast" class="toast" hidden role="status">
-    <span class="toast-text"></span>
-    <button type="button" class="toast-undo">取り消す</button>
-  </div>
+  <div id="toast" class="toast" hidden role="status"></div>
 
   <footer class="dock">
+    <div class="dock-label muted">いま記録する(押した時刻で入ります)</div>
     <div id="buttons" class="buttons" role="group" aria-label="いま記録する"></div>
+    <button type="button" id="write" class="write-btn"><span aria-hidden="true">✏️</span> 書く(文章・写真)</button>
     <div class="foot muted"><span id="version"></span> ・ 記録はこのスマホの中だけ <span id="persist"></span></div>
   </footer>
+
+  <div id="sheet" class="sheet" hidden></div>
+  <div id="viewer" class="viewer" hidden></div>
 
   <script type="module" src="./app.js"></script>
 </body>
