@@ -1,6 +1,6 @@
 // 電波がなくても開けるように、アプリのファイルをスマホにしまっておく。
 // 記録そのものは IndexedDB にあり、ここでは扱わない。よそのサイトへの通信はしない。
-const CACHE = 'diary-v0.10.1'
+const CACHE = 'diary-v0.11.0'
 const FILES = ['./', './index.html', './app.js', './store.js', './photo.js', './dom.js', './body.js', './koyomi.js', './koyomiView.js', './kinenbi.js', './places.js', './style.css', './manifest.webmanifest',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png']
 

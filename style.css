@@ -345,3 +345,8 @@ button, input, textarea { font: inherit; color: inherit; }
 .leg-time { width: 140px; }
 .og-item > *, .ongoing > * { flex-shrink: 0; }
 .mode-row { min-height: 56px; }
+
+/* v0.11: タブが5つになったので、名前を1行に収める(入りきらない幅のときは横にすべらせる) */
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs .tab { flex: 1 0 auto; white-space: nowrap; padding: 0 6px; font-size: 12.5px; letter-spacing: -0.02em; }

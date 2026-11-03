@@ -7,11 +7,11 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.10.1'
+const VERSION = '0.11.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
-const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'errand', label: '用事' }, { key: 'body', label: '体調・天気' }]
+const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'errand', label: '用事' }, { key: 'go', label: '外出・移動' }, { key: 'body', label: '体調・天気' }]
 const DEFAULT_BUTTONS = [
   { kind: 'wake', label: '起床', icon: '☀️', tab: 'flow', askPlace: true },
   { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true, askPlace: true, span: true },
@@ -36,6 +36,10 @@ const DEFAULT_BUTTONS = [
   { kind: 'bank', label: '銀行', icon: '🏦', tab: 'errand', askPlace: true, span: true },
   { kind: 'cityhall', label: '役所', icon: '🏛️', tab: 'errand', askPlace: true, span: true },
   { kind: 'barber', label: '床屋', icon: '💈', tab: 'errand', askPlace: true, span: true },
+  // v0.11: 外出(仕事の途中・昼食を買いに など。戻りで終わる)と、移動だけの記録(本人 2026-11-03)
+  { kind: 'goout', label: '外出', icon: '🚶', tab: 'go', askPlace: true, span: true },
+  { kind: 'back', label: '戻り', icon: '🔙', tab: 'go', askPlace: true },
+  { kind: 'trip', label: '移動', icon: '🚃', tab: 'go', askMove: true, span: true },
   // form: 押したら開く入力欄(health = 体調、bowel = お通じのかたさ、weather = 天気と気温)
   { kind: 'health', label: '体調', icon: '🩺', tab: 'body', form: 'health' },
   { kind: 'bowel', label: 'お通じ', icon: '🚽', tab: 'body', form: 'bowel' },
@@ -44,9 +48,10 @@ const DEFAULT_BUTTONS = [
 const FORMS = ['health', 'bowel', 'weather']
 // 時間の長さ(span: true のボタンは、押すと始まり、終わりを押すまで「続いているもの」になる)
 // 組: このボタンを押すと、続いている〇〇を終える(就寝→起床 など)
-const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume'], break: ['resume'] }
+const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume'], break: ['resume'],
+  goout: ['back', 'home'], trip: ['reach', 'arrive', 'home', 'back'] }
 // 長さの呼び名(就寝の長さは「睡眠」など)
-const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務' }
+const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務', goout: '外出', trip: '移動' }
 const fmtDur = (min) => { min = Math.max(0, Math.round(min)); const h2 = Math.floor(min / 60), m = min % 60; return h2 ? `${h2}時間${m ? `${m}分` : ''}` : `${m}分` }
 const durMin = (a, b) => (new Date(b) - new Date(a)) / 60000
 const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
@@ -54,7 +59,7 @@ const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
 const ICONS = ['⭐', '☀️', '🌙', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
   '🏥', '💊', '🪦', '🙏', '⛩️', '🛒', '🏦', '🏛️', '💈', '✂️', '🎣', '⛳', '🎤', '🎬', '🎵', '🍺', '🍜', '🍰', '🐕', '🌱',
   '🧹', '🧺', '🚗', '⛽', '🔧', '💻', '📞', '✉️', '👪', '👶', '🎂', '🎁', '🏖️', '♨️', '🛏️', '🚿', '🪥', '💤', '📝', '❤️',
-  '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊']
+  '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊', '🔙', '🚃', '🚌', '🚲']
 
 let BUTTONS = DEFAULT_BUTTONS.map(b => ({ ...b }))
 // タスク管理から読み込んだ件名リスト(件名名と工程名だけ。一方通行で、こちらからは何も返さない)
@@ -120,7 +125,7 @@ async function loadButtons() {
     }
   } catch { /* なければ最初のまま */ }
 }
-const ADDED_LATER = ['work', 'health', 'bowel', 'weather']   // v0.6・v0.7 で増えた最初のボタン
+const ADDED_LATER = ['work', 'health', 'bowel', 'weather', 'goout', 'back', 'trip']   // v0.6・v0.7・v0.11 で増えた最初のボタン
 // お薬・気になることの登録(本人が足す)、潮位表
 const LISTS = {
   meds: [], symptoms: [...DEFAULT_SYMPTOMS],
