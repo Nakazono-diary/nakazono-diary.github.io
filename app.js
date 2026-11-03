@@ -7,7 +7,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.11.0'
+const VERSION = '0.12.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -301,6 +301,14 @@ async function photoURL(id) {
 function releaseURLs() { for (const u of urls) URL.revokeObjectURL(u); urls.clear() }
 
 let today = dayOf(new Date())
+// 見ている日(null = 今日)。前の日・次の日で動かす(v0.12)
+let viewDay = null
+const shownDay = () => viewDay || today
+function goDay(day) {
+  viewDay = !day || day >= dayOf(new Date()) ? null : day
+  render()
+}
+const addDays = (day, n) => dayOf(new Date(new Date(day + 'T12:00:00').getTime() + n * 86400000))
 const KY_KEY = 'diary.koyomiOpen'
 function koyomiOpen() { try { return localStorage.getItem(KY_KEY) === '1' } catch { return false } }
 
@@ -325,12 +333,21 @@ async function audioList(ids, onRemove) {
   return box
 }
 
-// ---------- 今日のタイムライン ----------
+// ---------- 1日のタイムライン(今日か、前の日) ----------
 async function render() {
   today = dayOf(new Date())
-  const d = new Date(today + 'T00:00:00')
+  const day = shownDay()
+  const isToday = day === today
+  const d = new Date(day + 'T00:00:00')
   $('#date').textContent = `${d.getMonth() + 1}月${d.getDate()}日(${WEEKDAY[d.getDay()]})`
-  const list = await entriesOfDay(today)
+  // 前の日・次の日
+  $('#day-today').hidden = isToday
+  $('#day-next').disabled = isToday
+  $('#day-pick').value = day
+  $('#day-pick').max = today
+  $('#date').classList.toggle('past', !isToday)
+  $('#timeline').setAttribute('aria-label', isToday ? '今日のタイムライン' : `${d.getMonth() + 1}月${d.getDate()}日のタイムライン`)
+  const list = await entriesOfDay(day)
   // 前の日に始まって今日終わったもの(睡眠など)も、終えた記録のカードに出すため
   const yday = dayOf(new Date(d.getTime() - 86400000))
   ENDED = new Map()
@@ -339,15 +356,48 @@ async function render() {
   const nPhotos = list.reduce((a, e) => a + photosOf(e).length, 0)
   $('#count').textContent = list.length ? `記録 ${list.length}件${nPhotos ? ` ・ 写真 ${nPhotos}枚` : ''}` : ''
   try {
-    $('#koyomi').replaceChildren(koyomiCard(today, TIDE, koyomiOpen(), (o) => { try { localStorage.setItem(KY_KEY, o ? '1' : '0') } catch { /* */ } }))
+    $('#koyomi').replaceChildren(koyomiCard(day, TIDE, koyomiOpen(), (o) => { try { localStorage.setItem(KY_KEY, o ? '1' : '0') } catch { /* */ } }))
   } catch (err) { $('#koyomi').replaceChildren(h('p', { class: 'hint', text: `暦を出せませんでした: ${err.message || err}` })) }
   $('#empty').hidden = list.length > 0
   releaseURLs()
   const ul = $('#timeline')
   ul.replaceChildren()
   for (const e of list) ul.append(await card(e))
-  const last = ul.lastElementChild
-  if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest' })
+  renderDayBand(day, [...await entriesOfDay(yday), ...list])
+  if (isToday) {
+    const last = ul.lastElementChild
+    if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest' })
+  } else $('.main').scrollTop = 0
+}
+
+// 1日の帯(0時〜24時。睡眠・勤務・移動・外出などが、1日のどこを占めているか)。広い画面で出す
+const BAND_COLOR = { sleep: 'band-sleep', arrive: 'band-work', work: 'band-work', goout: 'band-out', meal: 'band-meal', lunch: 'band-meal', break: 'band-rest' }
+function renderDayBand(day, list) {
+  const box = $('#dayband')
+  if (!box) return
+  const d0 = new Date(day + 'T00:00:00').getTime(), d1 = d0 + 86400000
+  const now = Date.now()
+  const segs = []
+  for (const e of list) {
+    if (!e.span) continue
+    const a = new Date(e.at).getTime()
+    const b = e.end ? new Date(e.end).getTime() : (day === today ? now : a)
+    if (b <= d0 || a >= d1 || b <= a) continue
+    const cls = isMoveEntry(e) ? 'band-move' : (BAND_COLOR[e.kind] || 'band-other')
+    segs.push({ a: Math.max(a, d0), b: Math.min(b, d1), cls, e })
+  }
+  const track = h('div', { class: 'band-track' })
+  for (const sg of segs) {
+    const el = h('div', { class: `band-seg ${sg.cls}`, title: `${sg.e.icon || ''} ${SPAN_NAME[sg.e.kind] || sg.e.label} ${hm(stamp(new Date(sg.a)))}〜${hm(stamp(new Date(sg.b)))}` })
+    el.style.left = `${(sg.a - d0) / 864000}%`
+    el.style.width = `${Math.max(0.3, (sg.b - sg.a) / 864000)}%`
+    track.append(el)
+  }
+  if (day === today) { const n = h('div', { class: 'band-now' }); n.style.left = `${(now - d0) / 864000}%`; track.append(n) }
+  const ticks = h('div', { class: 'band-ticks' }, ...[0, 3, 6, 9, 12, 15, 18, 21, 24].map(x => { const t = h('span', { text: String(x) }); t.style.left = `${x / 24 * 100}%`; return t }))
+  const legend = h('div', { class: 'band-legend' }, ...[['band-sleep', '睡眠'], ['band-work', '勤務・作業'], ['band-move', '移動'], ['band-out', '外出'], ['band-meal', '食事'], ['band-rest', '休憩'], ['band-other', 'そのほか']]
+    .filter(([c]) => segs.some(sg => sg.cls === c)).map(([c, t]) => h('span', { class: 'band-key' }, h('i', { class: `band-dot ${c}` }), t)))
+  box.replaceChildren(h('p', { class: 'band-title', text: '1日の流れ' }), track, ticks, segs.length ? legend : h('p', { class: 'hint', text: '長さのある記録(睡眠・勤務・移動など)がまだありません' }))
 }
 
 let ENDED = new Map()
@@ -486,6 +536,7 @@ function buildButtons() {
 let toastTimer = null
 // 体調・天気は入力欄を開く。ほかは押した時刻ですぐ記録
 function pressButton(b) {
+  if (viewDay) { viewDay = null; render() }      // ボタンは「いま」の記録なので、今日にもどる
   if (b.form === 'health' || b.form === 'weather') { closeMovePick(); openBodySheet(b, null) }
   else quickRecord(b)
 }
@@ -602,9 +653,9 @@ async function openBodySheet(b, id) {
   const last = await lastValues(id)
   const form = isH ? healthForm(editing && editing.health, LISTS, last.health) : weatherForm(editing && editing.weather, last.weather)
   const now = new Date()
-  const dayIn = h('input', { type: 'date', class: 'input small', value: editing ? editing.day : dayOf(now), 'aria-label': '日付' })
+  const dayIn = h('input', { type: 'date', class: 'input small', value: editing ? editing.day : shownDay(), 'aria-label': '日付' })
   const timeIn = h('input', { type: 'time', class: 'input small', value: editing ? editing.at.slice(11, 16) : `${pad(now.getHours())}:${pad(now.getMinutes())}`, 'aria-label': '時刻' })
-  let timeTouched = false
+  let timeTouched = !editing && shownDay() !== today
   dayIn.addEventListener('change', () => { timeTouched = true }); timeIn.addEventListener('change', () => { timeTouched = true })
   const ta = h('textarea', { class: 'input textarea short', rows: '3', placeholder: 'ひとこと(なくてもよい)', 'aria-label': 'ひとこと' })
   ta.value = editing ? textOf(editing) : ''
@@ -659,9 +710,9 @@ async function openEditor(id, preset = {}) {
   const saved = !editing ? draft.get() : null
   const st = {
     kind: editing ? editing.kind : preset.kind || (saved && saved.kind) || 'memo',
-    day: editing ? editing.day : dayOf(now),
+    day: editing ? editing.day : shownDay(),
     time: editing ? editing.at.slice(11, 16) : `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-    timeIsNow: !editing,
+    timeIsNow: !editing && shownDay() === today,     // 前の日を見ているときは、その日に書く
     text: editing ? textOf(editing) : (saved && saved.text) || '',
     photos: editing ? [...photosOf(editing)] : [],
     moves: editing ? [...movesOf(editing)] : [],
@@ -1453,6 +1504,16 @@ async function main() {
   $('#places').addEventListener('click', () => { closeMovePick(); openPlaces() })
   $('#stats').addEventListener('click', () => { closeMovePick(); openStats() })
   $('#export').addEventListener('click', openBackup)
+  $('#day-prev').addEventListener('click', () => goDay(addDays(shownDay(), -1)))
+  $('#day-next').addEventListener('click', () => goDay(addDays(shownDay(), 1)))
+  $('#day-today').addEventListener('click', () => goDay(null))
+  $('#day-pick').addEventListener('change', (ev) => { if (ev.target.value) goDay(ev.target.value) })
+  // 広い画面(Surface など)では、← → のキーでも日を動かす(入力中は動かさない)
+  document.addEventListener('keydown', (ev) => {
+    if (!$('#sheet').hidden || /INPUT|TEXTAREA|SELECT/.test((ev.target || {}).tagName || '')) return
+    if (ev.key === 'ArrowLeft') goDay(addDays(shownDay(), -1))
+    else if (ev.key === 'ArrowRight' && viewDay) goDay(addDays(shownDay(), 1))
+  })
   $('#version').textContent = `v${VERSION}`
   $('#ios-install').hidden = !(isIOS() && !isStandalone())
   await render()

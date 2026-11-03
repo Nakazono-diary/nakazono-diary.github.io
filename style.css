@@ -350,3 +350,41 @@ button, input, textarea { font: inherit; color: inherit; }
 .tabs { overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs .tab { flex: 1 0 auto; white-space: nowrap; padding: 0 6px; font-size: 12.5px; letter-spacing: -0.02em; }
+
+/* v0.12: 前の日を見る */
+.daynav { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+.daynav .day-pick { flex: 1; min-width: 0; }
+.day-btn { height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--surface); font-size: 13px; }
+.day-btn:disabled { opacity: .4; }
+.day-btn.today { background: var(--btn); border-color: var(--btn); color: #fff; font-weight: 700; }
+.day-pick { height: 32px; border-radius: 8px; border: 1px solid var(--line2); background: var(--surface); padding: 0 6px; font-size: 13px; }
+.top h1.past { color: var(--memo); }
+
+/* 1日の帯(広い画面だけ) */
+.dayband { display: none; }
+.band-title { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.band-track { position: relative; height: 30px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+.band-seg { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; }
+.band-now { position: absolute; top: 0; bottom: 0; width: 2px; background: #dc2626; }
+.band-ticks { position: relative; height: 16px; font-size: 11px; color: var(--muted); }
+.band-ticks span { position: absolute; transform: translateX(-50%); }
+.band-ticks span:first-child { transform: none; }
+.band-ticks span:last-child { transform: translateX(-100%); }
+.band-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.band-key { display: inline-flex; align-items: center; gap: 4px; }
+.band-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.band-sleep { background: #4f46e5; } .band-work { background: #16a34a; } .band-move { background: #d97706; }
+.band-out { background: #0891b2; } .band-meal { background: #e11d48; } .band-rest { background: #a3a3a3; } .band-other { background: #64748b; }
+
+/* 広い画面(Surface・パソコン): 左にその日の記録、右にボタン(v0.12) */
+@media (min-width: 900px) {
+  body { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto auto minmax(0, 1fr);
+    height: 100vh; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+  .top { grid-column: 1 / -1; position: static; border-bottom: 1px solid var(--line); }
+  #ios-install { grid-column: 1 / -1; }
+  .main { grid-column: 1; grid-row: 3; padding: 12px 24px 24px; }
+  .dock { grid-column: 2; grid-row: 2 / 4; border-top: 0; border-left: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .dayband { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 10px 0 14px; }
+  .tabs .tab { font-size: 14px; }
+  .daynav { max-width: 520px; }
+}

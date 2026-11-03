@@ -30,6 +30,12 @@
         <button type="button" id="export" class="small-btn" title="ファイルに書き出す・ファイルから読み込む">バックアップ</button>
       </div>
     </div>
+    <div class="daynav" role="group" aria-label="見る日">
+      <button type="button" id="day-prev" class="day-btn" aria-label="前の日">◀ 前の日</button>
+      <input type="date" id="day-pick" class="day-pick" aria-label="日を選ぶ">
+      <button type="button" id="day-next" class="day-btn" aria-label="次の日">次の日 ▶</button>
+      <button type="button" id="day-today" class="day-btn today" hidden>今日へ</button>
+    </div>
   </header>
 
   <div id="ios-install" class="install" hidden role="note">
@@ -44,6 +50,7 @@
 
   <main class="main">
     <div id="koyomi"></div>
+    <div id="dayband" class="dayband"></div>
     <div id="error" class="error" hidden></div>
     <p id="empty" class="empty" hidden>まだ記録がありません。下のボタンを押すと、押した時刻で記録されます。文章や写真は「書く」から入れられます。</p>
     <ol id="timeline" class="timeline" aria-label="今日のタイムライン"></ol>
@@ -60,7 +67,7 @@
       <button type="button" id="write" class="write-btn"><span aria-hidden="true">✏️</span> 書く(文章・写真)</button>
       <button type="button" id="record" class="write-btn rec-btn2"><span aria-hidden="true">🎙️</span> 録音</button>
     </div>
-    <div class="foot muted"><span id="version"></span> ・ 記録はこのスマホの中だけ <span id="persist"></span></div>
+    <div class="foot muted"><span id="version"></span> ・ 記録はこの端末の中だけ <span id="persist"></span></div>
   </footer>
 
   <div id="sheet" class="sheet" hidden></div>
