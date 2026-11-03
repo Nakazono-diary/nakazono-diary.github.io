@@ -7,7 +7,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.10.0'
+const VERSION = '0.10.1'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -167,14 +167,26 @@ function legSpans(e, now = new Date()) {
 }
 const legsText = (e) => legSpans(e).map(x => `${MOVE_BY[x.mode].icon} ${MOVE_BY[x.mode].label} ${fmtDur(x.min)}${x.live ? '(いま)' : ''}`).join(' → ')
 // 乗りかえの記録(移動手段の並びも合わせる)
+const legPickedAt = new Map()     // 記録の id → いちばん後ろの手段を選んだ時刻(押しまちがいの直し用。記録には残さない)
 async function addLeg(id, mode) {
   const cur = await getEntry(id)
   if (!cur) return
   const legs = legsOf(cur)
   if (legs.length && legs[legs.length - 1].mode === mode) return
+  // 押しまちがいの直し: いちばん後ろの手段を選んでから1分以内なら、乗りかえにせず手段を入れかえる
+  const last = legs[legs.length - 1]
+  if (last && (Date.now() - (legPickedAt.get(id) || 0)) < 60 * 1000) {
+    const next = [...legs.slice(0, -1), { mode, at: last.at }]
+    await putEntry({ ...cur, legs: next, moves: next.map(l => l.mode), updated_at: stamp(new Date()) })
+    await render()
+    legPickedAt.set(id, Date.now())
+    showToast(`${MOVE_BY[mode].icon} ${MOVE_BY[mode].label}に直しました`)
+    return
+  }
   const at = legs.length ? stamp(new Date()) : cur.at   // 1本目は出発の時刻から
   const next = [...legs, { mode, at }]
   await putEntry({ ...cur, legs: next, moves: next.map(l => l.mode), updated_at: stamp(new Date()) })
+  legPickedAt.set(id, Date.now())
   await render()
   showToast(legs.length ? `${hm(at)} ${MOVE_BY[mode].icon} ${MOVE_BY[mode].label}に乗りかえました` : `${MOVE_BY[mode].icon} ${MOVE_BY[mode].label}で移動中`)
 }
@@ -533,11 +545,15 @@ function openMovePick(e, b) {
   }
   if (b.askProject) parts.push(h('p', { class: 'mp-label', text: '件名・工程は?' }), projectPicker(null, (pj) => update({ project: pj })))
   if (b.askMove && b.span) {
-    // 長さのある移動: 最初の移動手段を1つ選ぶ(乗りかえは下の帯から)
+    // 長さのある移動: 最初の移動手段を1つ選ぶ。2回目からは「乗りかえ」(下の帯と同じ。1分以内なら選び直し)
+    // 前はここで押すと最初の手段が入れかわり、移動の全部がその手段になっていた(本人 2026-11-03「全部電車に変わった」)
     const row = h('div', {})
-    const paintRow = (cur) => row.replaceChildren(modeRow(cur, async (m) => { await update({ legs: [{ mode: m, at: e.at }], moves: [m] }); paintRow(m) }))
+    const label = h('p', { class: 'mp-label', text: '最初の移動手段は?' })
+    const paintRow = (cur) => row.replaceChildren(modeRow(cur, async (m) => { await addLeg(e.id, m); paintRow(m) }))
     paintRow(null)
-    parts.push(h('p', { class: 'mp-label', text: '最初の移動手段は?(乗りかえたら、下の帯で押す)' }), row)
+    const relabel = () => { label.textContent = '乗りかえたら、ここか下の帯で押してください(押した時刻から次の手段になります)' }
+    row.addEventListener('click', () => setTimeout(relabel, 0))
+    parts.push(label, row)
   } else if (b.askMove) parts.push(h('p', { class: 'mp-label', text: '移動手段は?' }), movePicker([], (keys) => update({ moves: [...keys] })))
   if (b.form === 'bowel') parts.push(h('p', { class: 'mp-label', text: 'かたさは?' }), bowelPicker(null, (bw) => update({ bowel: bw })))
   box.replaceChildren(
