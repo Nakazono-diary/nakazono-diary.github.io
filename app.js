@@ -8,7 +8,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.13.0'
+const VERSION = '0.13.1'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1488,7 +1488,7 @@ function openButtonSettings() {
 
 // ---------- グーグルドライブで同期(v0.13。中身は鍵をかけてから送る。sync.js) ----------
 // Google Cloud で作った「OAuth クライアント ID」(秘密ではない。ここに入れておけば各端末で入れずに済む)
-const DEFAULT_CLIENT_ID = ''
+const DEFAULT_CLIENT_ID = '1015317495163-vjr878t25upmdej6v5jgpbr46daaqghl.apps.googleusercontent.com'
 const SYNC_AFTER_LOGIN = 'diary.syncAfterLogin'
 let syncing = false
 async function syncCfg() { return { clientId: DEFAULT_CLIENT_ID, ...((await getSetting('sync')) || {}) } }
