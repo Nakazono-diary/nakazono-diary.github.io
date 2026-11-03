@@ -1,5 +1,6 @@
 // 日記・タイムライン: ボタンで記録、文章と写真を書き足す、今日のタイムラインに並ぶ。
 // 記録はスマホの中だけ(store.js)。よそのサイトには何も送らない・何も読み込まない。
+import * as S from './sync.js'
 import { allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 import { h } from './dom.js'
@@ -7,7 +8,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.12.0'
+const VERSION = '0.13.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1243,11 +1244,12 @@ function openBackup() {
         h('label', { class: 'secondary-btn as-btn', for: 'import-in', text: 'ファイルを選ぶ' }),
         confirmBox),
       msg,
+      syncCard(),
       namesCard(),
       tideCard(),
       h('section', { class: 'bk-note' },
         h('h3', { text: '記録はどこにある?' }),
-        h('p', { text: 'このスマホのブラウザの中(この住所専用の保存場所)だけにあります。どこにも送っていません。' }),
+        h('p', { text: 'この端末のブラウザの中(この住所専用の保存場所)にあります。同期を使うと、合言葉の鍵をかけたものがグーグルドライブのアプリ専用の隠しフォルダにも置かれます(Google にも中身は読めません)。同期を使わなければ、どこにも送りません。' }),
         h('p', { text: 'ブラウザの「サイトのデータを削除」、アプリの削除、機種変更・初期化で消えます。その前に書き出してください。' })),
     )))
   sheet.hidden = false
@@ -1483,6 +1485,237 @@ function openButtonSettings() {
   document.body.classList.add('no-scroll')
 }
 
+
+// ---------- グーグルドライブで同期(v0.13。中身は鍵をかけてから送る。sync.js) ----------
+// Google Cloud で作った「OAuth クライアント ID」(秘密ではない。ここに入れておけば各端末で入れずに済む)
+const DEFAULT_CLIENT_ID = ''
+const SYNC_AFTER_LOGIN = 'diary.syncAfterLogin'
+let syncing = false
+async function syncCfg() { return { clientId: DEFAULT_CLIENT_ID, ...((await getSetting('sync')) || {}) } }
+function paintSyncFoot(cfg) {
+  const on = !!(cfg && cfg.lastSync)
+  $('#where').textContent = on ? '記録はこの端末と、鍵をかけてグーグルドライブに' : '記録はこの端末の中だけ'
+  $('#sync-btn').title = on ? `最後の同期: ${cfg.lastSync.slice(5, 16).replace('T', ' ')}` : 'グーグルドライブで、スマホと Surface の記録を合わせる'
+}
+
+// 合言葉を聞く窓。mode: 'new' = 初めて決める(2回入れる)、'enter' = ほかの端末で決めた合言葉を入れる
+function askPass(mode, note = '') {
+  return new Promise((resolve) => {
+    const sheet = $('#sheet')
+    const p1 = h('input', { type: 'password', class: 'input', autocomplete: mode === 'new' ? 'new-password' : 'current-password', 'aria-label': '合言葉' })
+    const p2 = h('input', { type: 'password', class: 'input', autocomplete: 'new-password', 'aria-label': '合言葉(もう一度)' })
+    const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite', text: note })
+    const close = (v) => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll'); resolve(v) }
+    const ok = () => {
+      const v = p1.value
+      if (mode === 'new') {
+        if (v.length < 8) { msg.textContent = '8文字以上にしてください(長いほど安全です)'; return }
+        if (v !== p2.value) { msg.textContent = '2回の合言葉がちがいます'; return }
+      } else if (!v) { msg.textContent = '合言葉を入れてください'; return }
+      close(v)
+    }
+    const onKey = (ev) => { if (ev.key === 'Enter') ok() }
+    p1.addEventListener('keydown', onKey); p2.addEventListener('keydown', onKey)
+    sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '同期の合言葉' },
+      h('div', { class: 'sheet-top' }, h('h2', { text: mode === 'new' ? '同期の合言葉を決める' : '同期の合言葉' }), h('button', { type: 'button', class: 'link-btn', text: 'やめる', onclick: () => close(null) })),
+      h('div', { class: 'sheet-body' },
+        mode === 'new'
+          ? h('div', { class: 'bk-note' }, h('h3', { text: '大事なこと' }),
+            h('p', { text: '記録は、この合言葉で鍵をかけてからグーグルドライブに置きます。Google にも、ほかの人にも中身は読めません。' }),
+            h('p', { class: 'warn', text: '合言葉を忘れると、ドライブの分は誰にも開けません(Google にも)。紙などに控えておいてください。' }),
+            h('p', { text: 'スマホと Surface で同じ合言葉を使います。この端末では、次からは聞きません。' }))
+          : h('p', { text: 'ほかの端末で決めた合言葉を入れてください。この端末では、次からは聞きません。' }),
+        h('div', {}, h('span', { class: 'ed-label', text: '合言葉' }), p1),
+        mode === 'new' ? h('div', {}, h('span', { class: 'ed-label', text: '合言葉(もう一度)' }), p2) : null,
+        msg),
+      h('div', { class: 'sheet-foot' }, h('button', { type: 'button', class: 'primary-btn', text: 'これで鍵をかける', onclick: ok }))))
+    sheet.hidden = false
+    document.body.classList.add('no-scroll')
+    p1.focus()
+  })
+}
+
+// 同期: ドライブの中身を読み、この端末と合わせ、合わせたものをドライブに置く
+async function runSync(report = (t) => showToast(t)) {
+  if (syncing) return
+  const cfg = await syncCfg()
+  if (!cfg.clientId) { report('先に、バックアップの画面で「Google のクライアント ID」を入れてください'); openBackup(); return }
+  if (!navigator.onLine) { report('電波がないので同期できません'); return }
+  const token = S.tokenNow()
+  if (!token) {
+    try { sessionStorage.setItem(SYNC_AFTER_LOGIN, '1') } catch { /* */ }
+    S.login(cfg.clientId)       // Google のログインへ移動して、もどってきたら続きをする
+    return
+  }
+  syncing = true
+  const btn = $('#sync-btn'); btn.disabled = true; btn.classList.add('busy')
+  try {
+    report('同期しています…')
+    const files = await S.listFiles(token)
+    const byName = new Map(files.map(f => [f.name, f]))
+    const mainF = byName.get(S.MAIN)
+    let k = await getSetting('syncKey')       // { key: CryptoKey(取り出せない形), salt }
+    let remote = null
+    if (mainF) {
+      const buf = await S.download(token, mainF.id)
+      const salt = S.saltOf(buf)
+      for (let tries = 0; ; tries++) {
+        if (!k || k.salt !== S.b64(salt)) {
+          const pass = await askPass('enter', tries ? '合言葉がちがいます。もう一度入れてください' : '')
+          if (pass == null) { report('同期をやめました'); return }
+          k = { key: await S.deriveKey(pass, salt), salt: S.b64(salt) }
+        }
+        try { remote = JSON.parse(new TextDecoder().decode(await S.open(k.key, buf))); break } catch (err) {
+          if (err.message !== 'WRONG_PASS') throw err
+          k = null
+          if (tries >= 4) { report('合言葉がちがうので、同期をやめました'); return }
+        }
+      }
+      await putSetting('syncKey', k)
+    } else if (!k) {
+      const pass = await askPass('new')
+      if (pass == null) { report('同期をやめました'); return }
+      const salt = crypto.getRandomValues(new Uint8Array(16))
+      k = { key: await S.deriveKey(pass, salt), salt: S.b64(salt) }
+      await putSetting('syncKey', k)
+    }
+    if (remote && remote.app !== 'diary-sync') throw new Error('ドライブの中身が日記のものではありません')
+    const salt = S.unb64(k.salt)
+    report('記録を合わせています…')
+
+    // 1. 記録(消した印も)
+    const local = await allEntries()
+    const tombsL = (await getSetting('tombs')) || {}
+    const { entries, tombs } = S.mergeEntries(local, (remote && remote.entries) || [], tombsL, (remote && remote.tombs) || {})
+    const keep = new Set(entries.map(e => e.id))
+    const localBy = new Map(local.map(e => [e.id, e]))
+    let added = 0, changed = 0, removed = 0, gotP = 0, gotA = 0
+    for (const e of local) if (!keep.has(e.id)) { await deleteEntry(e.id, tombs[e.id]); removed++ }
+    const meta = { photos: (remote && remote.photoMeta) || {}, audios: (remote && remote.audioMeta) || {} }
+    for (const e of entries) {
+      const cur = localBy.get(e.id)
+      if (cur && JSON.stringify(cur) === JSON.stringify(e)) continue
+      // 写真・録音で、この端末にないものはドライブから取る
+      for (const pid of photosOf(e)) {
+        if (await getPhoto(pid)) continue
+        const f = byName.get(S.blobName('p', pid))
+        if (!f) continue
+        const bytes = await S.open(k.key, await S.download(token, f.id))
+        const m = meta.photos[pid] || {}
+        await savePhoto({ id: pid, blob: new Blob([bytes], { type: m.mime || 'image/jpeg' }), w: m.w || 0, h: m.h || 0, created_at: m.created_at || e.at }); gotP++
+      }
+      for (const aid of audiosOf(e)) {
+        if (await getAudio(aid)) continue
+        const f = byName.get(S.blobName('a', aid))
+        if (!f) continue
+        const bytes = await S.open(k.key, await S.download(token, f.id))
+        const m = meta.audios[aid] || {}
+        await saveAudio({ id: aid, blob: new Blob([bytes], { type: m.mime || 'audio/webm' }), mime: m.mime || '', sec: m.sec || 0, created_at: m.created_at || e.at }); gotA++
+      }
+      await putEntry(e)
+      if (cur) changed++; else added++
+    }
+    await putSetting('tombs', tombs)
+
+    // 2. 設定: ボタンは新しく保存したほう、場所・お薬などは合わせる、件名リストは新しく書き出したほう
+    const rs = (remote && remote.settings) || {}
+    const myButtons = await getSetting('buttons')
+    if (rs.buttons && Array.isArray(rs.buttons.buttons) && (!myButtons || (rs.buttons.updated_at || '') > (myButtons.updated_at || ''))) {
+      await putSetting('buttons', rs.buttons); BUTTONS = rs.buttons.buttons; buildButtons()
+    }
+    if (Array.isArray(rs.places)) {
+      const add = rs.places.filter(p => p && typeof p.id === 'string' && !PLACES.some(x => x.id === p.id))
+      if (add.length) await savePlaces([...PLACES, ...add])
+    }
+    for (const key of ['meds', 'symptoms']) {
+      const add = ((rs.lists || {})[key] || []).filter(x => typeof x === 'string' && !LISTS[key].includes(x))
+      if (add.length) await LISTS.save(key, [...LISTS[key], ...add])
+    }
+    if (rs.projects && Array.isArray(rs.projects.projects) && (rs.projects.exported_at || '') > (PROJECTS.exported_at || '')) { PROJECTS = rs.projects; await putSetting('projects', PROJECTS) }
+    if (rs.tide && !TIDE) { TIDE = rs.tide; await putSetting('tide', TIDE) }
+
+    // 3. 写真・録音で、ドライブにないものを送る(鍵をかけて)。使われなくなったものはドライブから消す
+    report('ドライブに送っています…')
+    const now = await allEntries()
+    const photoMeta = {}, audioMeta = {}
+    let sentP = 0, sentA = 0
+    const want = new Set()
+    for (const e of now) {
+      for (const pid of photosOf(e)) {
+        const name = S.blobName('p', pid); want.add(name)
+        const p = await getPhoto(pid)
+        if (!p) { if (meta.photos[pid]) photoMeta[pid] = meta.photos[pid]; continue }
+        photoMeta[pid] = { w: p.w || 0, h: p.h || 0, mime: p.blob.type || 'image/jpeg', created_at: p.created_at || '' }
+        if (!byName.has(name)) { await S.upload(token, name, await S.seal(k.key, salt, new Uint8Array(await p.blob.arrayBuffer()), false)); sentP++ }
+      }
+      for (const aid of audiosOf(e)) {
+        const name = S.blobName('a', aid); want.add(name)
+        const a = await getAudio(aid)
+        if (!a) { if (meta.audios[aid]) audioMeta[aid] = meta.audios[aid]; continue }
+        audioMeta[aid] = { mime: a.mime || a.blob.type || '', sec: a.sec || 0, created_at: a.created_at || '' }
+        if (!byName.has(name)) { await S.upload(token, name, await S.seal(k.key, salt, new Uint8Array(await a.blob.arrayBuffer()), false)); sentA++ }
+      }
+    }
+    for (const f of files) if (/^[pa]-.+\.enc$/.test(f.name) && !want.has(f.name)) await S.remove(token, f.id).catch(() => {})
+
+    // ドライブ側から見て変わったもの(この端末で書いた・直した・消した分)
+    const remoteBy = new Map(((remote && remote.entries) || []).map(e => [e.id, JSON.stringify(e)]))
+    const sentE = now.filter(e => remoteBy.get(e.id) !== JSON.stringify(e)).length
+    const sentD = Object.keys(tombs).filter(id => !((remote && remote.tombs) || {})[id] && remoteBy.has(id)).length
+    // 4. 本体(記録と設定)を、鍵をかけて置く
+    const body = { app: 'diary-sync', format: 1, version: VERSION, saved_at: stamp(new Date()), entries: now, tombs, photoMeta, audioMeta,
+      settings: { buttons: await getSetting('buttons'), places: PLACES, lists: { meds: LISTS.meds, symptoms: LISTS.symptoms }, projects: PROJECTS, tide: TIDE } }
+    await S.upload(token, S.MAIN, await S.seal(k.key, salt, new TextEncoder().encode(JSON.stringify(body))), mainF && mainF.id)
+
+    const next = { ...cfg, lastSync: stamp(new Date()) }
+    delete next.lastResult
+    await putSetting('sync', { ...next, lastResult: { added, changed, removed, sentP, sentA, gotP, gotA } })
+    paintSyncFoot(next)
+    await render()
+    const parts = [added && `受け取った記録 ${added}件`, changed && `新しくなった記録 ${changed}件`, removed && `ほかで消した記録 ${removed}件`,
+      (gotP || gotA) && `受け取った写真・録音 ${gotP + gotA}`, sentE && `送った記録 ${sentE}件`, sentD && `消したことを伝えた記録 ${sentD}件`,
+      (sentP || sentA) && `送った写真・録音 ${sentP + sentA}`].filter(Boolean)
+    report(`同期しました${parts.length ? `(${parts.join('・')})` : '(変わったところはありません)'}`)
+  } catch (err) {
+    if (err instanceof S.AuthError) {
+      try { sessionStorage.setItem(SYNC_AFTER_LOGIN, '1') } catch { /* */ }
+      report('ログインし直します…'); setTimeout(() => S.login(cfg.clientId), 800)
+    } else report(`同期できませんでした: ${err.message || err}`)
+  } finally {
+    syncing = false; btn.disabled = false; btn.classList.remove('busy')
+  }
+}
+
+// バックアップの画面の「グーグルドライブで同期」の欄
+function syncCard() {
+  const status = h('p')
+  const msg = h('p', { class: 'bk-msg', 'aria-live': 'polite' })
+  const idIn = h('input', { type: 'text', class: 'input', placeholder: '123456789-xxxx.apps.googleusercontent.com', 'aria-label': 'Google のクライアント ID', spellcheck: 'false', autocapitalize: 'off' })
+  const paint = async () => {
+    const cfg = await syncCfg()
+    idIn.value = cfg.clientId || ''
+    const k = await getSetting('syncKey')
+    status.textContent = cfg.lastSync ? `最後の同期: ${cfg.lastSync.slice(0, 16).replace('T', ' ')}` : 'まだ同期していません。'
+    forgetBtn.hidden = !k
+  }
+  const saveId = async () => {
+    const v = idIn.value.trim()
+    if (v && !/\.apps\.googleusercontent\.com$/.test(v)) { msg.className = 'bk-msg err'; msg.textContent = 'クライアント ID の形がちがいます(…apps.googleusercontent.com で終わります)'; return false }
+    await putSetting('sync', { ...((await getSetting('sync')) || {}), clientId: v }); return true
+  }
+  const goBtn = h('button', { type: 'button', class: 'primary-btn', text: '同期する', onclick: async () => { if (await saveId()) { $('#sheet').hidden = true; $('#sheet').replaceChildren(); document.body.classList.remove('no-scroll'); runSync() } } })
+  const forgetBtn = h('button', { type: 'button', class: 'small-btn', text: 'この端末の鍵を消す', onclick: async () => {
+    if (!confirm('この端末に覚えている同期の鍵を消します。次の同期で合言葉を聞きます(記録は消えません)。')) return
+    await putSetting('syncKey', null); S.forgetToken(); msg.className = 'bk-msg ok'; msg.textContent = '鍵を消しました。'; paint()
+  } })
+  paint()
+  return h('div', { class: 'bk-card' }, h('h3', { text: 'グーグルドライブで同期(鍵つき)' }),
+    h('p', { text: 'スマホと Surface の記録を合わせます。中身はこの端末で合言葉の鍵をかけてから、ドライブのアプリ専用の隠しフォルダに置きます(Google にも読めません)。消した記録は、ほかの端末からも消えます。' }),
+    status,
+    h('div', {}, h('span', { class: 'ed-label', text: 'Google のクライアント ID(最初に1回)' }), idIn),
+    h('div', { class: 'bk-row' }, goBtn, forgetBtn), msg)
+}
+
 // ---------- iPhone: ホーム画面に入れていないときの案内 ----------
 function isIOS() {
   const ua = navigator.userAgent || ''
@@ -1515,6 +1748,14 @@ async function main() {
     else if (ev.key === 'ArrowRight' && viewDay) goDay(addDays(shownDay(), 1))
   })
   $('#version').textContent = `v${VERSION}`
+  $('#sync-btn').addEventListener('click', () => { closeMovePick(); runSync() })
+  paintSyncFoot(await syncCfg())
+  // Google のログインからもどってきたとき
+  const back = S.takeRedirect()
+  let resume = false
+  try { resume = sessionStorage.getItem(SYNC_AFTER_LOGIN) === '1'; sessionStorage.removeItem(SYNC_AFTER_LOGIN) } catch { /* */ }
+  if (back && back.error) setTimeout(() => showToast(back.error), 300)
+  else if (back && back.ok && resume) setTimeout(() => runSync(), 300)
   $('#ios-install').hidden = !(isIOS() && !isStandalone())
   await render()
   askPersist().then(ok => { $('#persist').textContent = ok ? '・ 消されない設定' : '' })

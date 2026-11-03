@@ -52,13 +52,19 @@ export function putEntry(entry) {
   return tx(['entries'], 'readwrite', s => req2p(s('entries').put(entry))).then(() => entry)
 }
 
-// 記録を消す(付いていた写真・録音も消す)
-export function deleteEntry(id) {
-  return tx(['entries', 'photos', 'audios'], 'readwrite', async s => {
+// 記録を消す(付いていた写真・録音も消す)。
+// 消した印(settings の tombs: id → 消した時刻)も残す。同期で、ほかの端末からも消すため(v0.13)
+export function deleteEntry(id, at = null) {
+  return tx(['entries', 'photos', 'audios', 'settings'], 'readwrite', async s => {
     const e = await req2p(s('entries').get(id))
     for (const pid of (e && e.photos) || []) await req2p(s('photos').delete(pid))
     for (const aid of (e && e.audios) || []) await req2p(s('audios').delete(aid))
     await req2p(s('entries').delete(id))
+    const t = await req2p(s('settings').get('tombs'))
+    const tombs = (t && t.value) || {}
+    const when = at || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19)
+    if (!tombs[id] || when > tombs[id]) tombs[id] = when
+    await req2p(s('settings').put({ key: 'tombs', value: tombs }))
   })
 }
 

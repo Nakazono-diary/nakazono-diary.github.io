@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<!-- よそのサイトから何も読み込まない・どこにも送らない(この住所の中のファイルだけ) -->
+<!-- よそのサイトから何も読み込まない(この住所の中のファイルだけ)。通信は、同期のときのグーグルドライブ(鍵をかけた中身)だけ(v0.13) -->
 <meta http-equiv="Content-Security-Policy"
-  content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' https://www.googleapis.com; manifest-src 'self'; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#1e3a8a">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -67,7 +67,8 @@
       <button type="button" id="write" class="write-btn"><span aria-hidden="true">✏️</span> 書く(文章・写真)</button>
       <button type="button" id="record" class="write-btn rec-btn2"><span aria-hidden="true">🎙️</span> 録音</button>
     </div>
-    <div class="foot muted"><span id="version"></span> ・ 記録はこの端末の中だけ <span id="persist"></span></div>
+    <div class="foot muted"><span id="version"></span> ・ <span id="where">記録はこの端末の中だけ</span> <span id="persist"></span>
+      <button type="button" id="sync-btn" class="sync-btn" title="グーグルドライブで、スマホと Surface の記録を合わせる">☁ 同期</button></div>
   </footer>
 
   <div id="sheet" class="sheet" hidden></div>
