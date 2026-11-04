@@ -8,7 +8,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.15.0'
+const VERSION = '0.16.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -22,6 +22,7 @@ const DEFAULT_BUTTONS = [
   { kind: 'home', label: '帰宅', icon: '🏠', tab: 'flow', askPlace: true },
   { kind: 'sleep', label: '就寝', icon: '🌙', tab: 'flow', span: true },
   { kind: 'meal', label: '食事', icon: '🍽️', tab: 'flow', span: true },
+  { kind: 'bath', label: '入浴', icon: '🛁', tab: 'flow', span: true },   // v0.16(本人 2026-11-05「入浴がないね」)
   { kind: 'work', label: '作業', icon: '💻', tab: 'do', askProject: true, span: true },
   { kind: 'lunch', label: '昼休み', icon: '🍙', tab: 'do', span: true },
   { kind: 'break', label: '休憩', icon: '☕', tab: 'do', span: true },
@@ -57,7 +58,7 @@ const fmtDur = (min) => { min = Math.max(0, Math.round(min)); const h2 = Math.fl
 const durMin = (a, b) => (new Date(b) - new Date(a)) / 60000
 const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
 // ボタンに選べる絵(端末の絵文字。よそから読み込まない)
-const ICONS = ['⭐', '☀️', '🌙', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
+const ICONS = ['⭐', '☀️', '🌙', '🛁', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
   '🏥', '💊', '🪦', '🙏', '⛩️', '🛒', '🏦', '🏛️', '💈', '✂️', '🎣', '⛳', '🎤', '🎬', '🎵', '🍺', '🍜', '🍰', '🐕', '🌱',
   '🧹', '🧺', '🚗', '⛽', '🔧', '💻', '📞', '✉️', '👪', '👶', '🎂', '🎁', '🏖️', '♨️', '🛏️', '🚿', '🪥', '💤', '📝', '❤️',
   '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊', '🔙', '🚃', '🚌', '🚲']
@@ -129,7 +130,7 @@ async function loadButtons() {
     }
   } catch { /* なければ最初のまま */ }
 }
-const ADDED_LATER = ['work', 'health', 'bowel', 'weather', 'goout', 'back', 'trip']   // v0.6・v0.7・v0.11 で増えた最初のボタン
+const ADDED_LATER = ['work', 'health', 'bowel', 'weather', 'goout', 'back', 'trip', 'bath']   // v0.6・v0.7・v0.11・v0.16 で増えた最初のボタン
 // お薬・気になることの登録(本人が足す)、潮位表
 const LISTS = {
   meds: [], symptoms: [...DEFAULT_SYMPTOMS],
