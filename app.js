@@ -8,7 +8,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.16.0'
+const VERSION = '0.16.1'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -730,7 +730,7 @@ async function openBodySheet(b, id) {
     await putEntry(e)
     close()
     await render()
-    showToast(editing ? '直しました' : `${hm(e.at)} 「${e.label}」を記録しました`)
+    showToast(editing ? `直しました${moved.length ? `(${moved.map(x => `「${nameOf(x)}」`).join('・')}も動かしました)` : ''}` : `${hm(e.at)} 「${e.label}」を記録しました`)
     return e
   }
   sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': b.label },
@@ -757,6 +757,34 @@ async function openBodySheet(b, id) {
 }
 
 // ---------- 書く・直す(画面案の「記録を足す」) ----------
+// 時刻を直した記録(before → after)に合わせて、つながっている記録を動かす。動かした記録を返す
+async function moveLinked(before, after, link, ts) {
+  const m16 = (v) => (v || '').slice(0, 16)
+  const out = []
+  if (m16(before.at) !== m16(after.at)) {
+    for (const x of link.prev) {
+      const c = await getEntry(x.id)
+      if (!c || !c.end || after.at <= c.at) continue            // 始まりより前には動かさない
+      await putEntry({ ...c, end: after.at, updated_at: ts }); out.push(c)
+    }
+  }
+  if (before.end && after.end && m16(before.end) !== m16(after.end)) {
+    for (const x of link.next) {
+      const c = await getEntry(x.id)
+      if (!c || (c.end && c.end <= after.end)) continue          // 終わりより後には動かさない
+      const n = { ...c, at: after.end, day: after.end.slice(0, 10), updated_at: ts }
+      const legs = legsOf(c)
+      if (legs.length && m16(legs[0].at) === m16(c.at)) n.legs = [{ ...legs[0], at: after.end }, ...legs.slice(1)]   // 1本目の移動手段も
+      await putEntry(n); out.push(c)
+      // 同じ記録で一緒に終わった、ほかの記録の終わりも(帰宅で 移動 と 外出 が終わった など)
+      for (const z of (await allEntries()).filter(z => z.end_by === c.id && z.id !== after.id)) {
+        if (after.end <= z.at) continue
+        await putEntry({ ...z, end: after.end, updated_at: ts }); out.push(z)
+      }
+    }
+  }
+  return out
+}
 async function openEditor(id, preset = {}) {
   const editing = id ? await getEntry(id) : null
   const now = new Date()
@@ -801,6 +829,28 @@ async function openEditor(id, preset = {}) {
   const endBox = h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '終わり(長さのあるもの。空なら「続いています」)' }), endDayIn, endTimeIn,
     h('button', { type: 'button', class: 'small-btn', text: 'いま', onclick: () => { const n = new Date(); endDayIn.value = dayOf(n); endTimeIn.value = `${pad(n.getHours())}:${pad(n.getMinutes())}` } }),
     h('button', { type: 'button', class: 'small-btn', text: '空にする', onclick: () => { endDayIn.value = ''; endTimeIn.value = '' } }))
+
+  // つながっている記録(v0.16.1 本人「時間修正したときに前の事柄の終了時間と今の事柄の開始時間を連動して」)
+  //   前: この記録が終わらせた記録(end_by)。組がなければ、終わりがこの記録の始まりとぴったり同じ記録
+  //   次: この記録を終わらせた記録(end_by)。組がなければ、始まりがこの記録の終わりとぴったり同じ記録
+  const link = { prev: [], next: [] }
+  if (editing) {
+    const all = (await allEntries()).filter(x => x.id !== editing.id)
+    const m16 = (v) => (v || '').slice(0, 16)
+    link.prev = all.filter(x => x.end && x.end_by === editing.id)
+    if (!link.prev.length) link.prev = all.filter(x => x.end && m16(x.end) === m16(editing.at))
+    if (editing.end) {
+      const y = editing.end_by ? all.find(x => x.id === editing.end_by) : null
+      link.next = y ? [y] : all.filter(x => m16(x.at) === m16(editing.end))
+    }
+  }
+  const nameOf = (x) => SPAN_NAME[x.kind] || x.label
+  const linkChk = h('input', { type: 'checkbox', checked: true })
+  const linkBox = (link.prev.length || link.next.length)
+    ? h('label', { class: 'ed-link' }, linkChk, h('span', {},
+      'つながっている記録も一緒に動かす(',
+      [...link.prev.map(x => `前の「${nameOf(x)}」の終わり`), ...link.next.map(x => `次の「${x.label}」の時刻`)].join('・'), ')'))
+    : null
 
   // 種類
   const kindBox = h('div', { class: 'kind-groups', role: 'group', 'aria-label': '種類' })
@@ -971,12 +1021,13 @@ async function openEditor(id, preset = {}) {
       // 直していて終わりを空にした: 長さのボタンなら「続いています」に戻る
     }
     await putEntry(e)
+    const moved = (editing && linkBox && linkChk.checked) ? await moveLinked(editing, e, link, ts) : []
     for (const pid of removed) await deletePhoto(pid)
     for (const aid of removedA) await deleteAudio(aid)
     if (!editing) draft.clear()
     await close(true)
     await render()
-    showToast(editing ? '直しました' : `${hm(e.at)} 「${e.label}」を記録しました`)
+    showToast(editing ? `直しました${moved.length ? `(${moved.map(x => `「${nameOf(x)}」`).join('・')}も動かしました)` : ''}` : `${hm(e.at)} 「${e.label}」を記録しました`)
   }
   const remove = async () => {
     if (!confirm(`${hm(editing.at)} の「${editing.label}」を消しますか?(文章・写真・録音も消えます)`)) return
@@ -995,6 +1046,7 @@ async function openEditor(id, preset = {}) {
     h('div', { class: 'sheet-body' },
       h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '時刻(始まり)' }), dayIn, timeIn, nowTag),
       endBox,
+      linkBox,
       h('div', {}, h('span', { class: 'ed-label', text: '場所' }), placeBox),
       h('div', {}, h('span', { class: 'ed-label', text: '種類' }), kindBox),
       secHealth, secBowel, secWeather,
