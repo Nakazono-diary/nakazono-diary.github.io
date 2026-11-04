@@ -8,7 +8,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.14.0'
+const VERSION = '0.15.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -65,6 +65,9 @@ const ICONS = ['⭐', '☀️', '🌙', '🚪', '📍', '🏢', '🌆', '🏠', 
 let BUTTONS = DEFAULT_BUTTONS.map(b => ({ ...b }))
 // タスク管理から読み込んだ件名リスト(件名名と工程名だけ。一方通行で、こちらからは何も返さない)
 let PROJECTS = { exported_at: '', projects: [] }
+// 件名リストの中身を、名前と工程名だけにそろえる(ファイルからでも、件名ブリッジからでも)
+const cleanProjects = (list) => list.filter(p => p && typeof p.title === 'string' && p.title.trim())
+  .map(p => ({ title: p.title.trim(), steps: Array.isArray(p.steps) ? p.steps.filter(x => typeof x === 'string' && x.trim()) : [] }))
 async function loadProjects() {
   try { const v = await getSetting('projects'); if (v && Array.isArray(v.projects)) PROJECTS = v } catch { /* なくても動く */ }
 }
@@ -1166,8 +1169,7 @@ function namesCard() {
     try {
       const d = JSON.parse(await f.text())
       if (!d || d.app !== 'taskapp-names' || !Array.isArray(d.projects)) throw new Error('タスク管理の件名リストではないようです')
-      const projects = d.projects.filter(p => p && typeof p.title === 'string' && p.title.trim())
-        .map(p => ({ title: p.title.trim(), steps: Array.isArray(p.steps) ? p.steps.filter(x => typeof x === 'string' && x.trim()) : [] }))
+      const projects = cleanProjects(d.projects)
       PROJECTS = { exported_at: typeof d.exported_at === 'string' ? d.exported_at : '', projects }
       await putSetting('projects', PROJECTS)
       paint()
@@ -1680,6 +1682,21 @@ async function runSync(report = (t) => showToast(t)) {
       if (add.length) await LISTS.save(key, [...LISTS[key], ...add])
     }
     if (rs.projects && Array.isArray(rs.projects.projects) && (rs.projects.exported_at || '') > (PROJECTS.exported_at || '')) { PROJECTS = rs.projects; await putSetting('projects', PROJECTS) }
+    // 件名ブリッジ(会社の PC)が置いた件名リスト。新しく書き出したほうを使う(v0.15)
+    let gotK = 0, kenmeiNote = ''
+    const kf = byName.get(S.KENMEI)
+    if (kf) {
+      try {
+        const d = JSON.parse(new TextDecoder().decode(await S.open(k.key, await S.download(token, kf.id))))
+        if (d && d.app === 'taskapp-names' && Array.isArray(d.projects) && (d.exported_at || '') > (PROJECTS.exported_at || '')) {
+          PROJECTS = { exported_at: d.exported_at || '', projects: cleanProjects(d.projects) }
+          await putSetting('projects', PROJECTS); gotK = PROJECTS.projects.length
+        }
+      } catch (err) {
+        if (err.message !== 'WRONG_PASS') throw err
+        kenmeiNote = '件名ブリッジの件名リストが開けませんでした(合言葉を変えたときは、ブリッジの合言葉も入れ直してください)'
+      }
+    }
     if (rs.tide && !TIDE) { TIDE = rs.tide; await putSetting('tide', TIDE) }
 
     // 3. 写真・録音で、ドライブにないものを送る(鍵をかけて)。使われなくなったものはドライブから消す
@@ -1722,8 +1739,8 @@ async function runSync(report = (t) => showToast(t)) {
     await render()
     const parts = [added && `受け取った記録 ${added}件`, changed && `新しくなった記録 ${changed}件`, removed && `ほかで消した記録 ${removed}件`,
       (gotP || gotA) && `受け取った写真・録音 ${gotP + gotA}`, sentE && `送った記録 ${sentE}件`, sentD && `消したことを伝えた記録 ${sentD}件`,
-      (sentP || sentA) && `送った写真・録音 ${sentP + sentA}`].filter(Boolean)
-    report(`同期しました${parts.length ? `(${parts.join('・')})` : '(変わったところはありません)'}`)
+      (sentP || sentA) && `送った写真・録音 ${sentP + sentA}`, gotK && `新しい件名リスト ${gotK}件`].filter(Boolean)
+    report(`同期しました${parts.length ? `(${parts.join('・')})` : '(変わったところはありません)'}${kenmeiNote ? `。${kenmeiNote}` : ''}`)
   } catch (err) {
     if (err instanceof S.AuthError) {
       try { sessionStorage.setItem(SYNC_AFTER_LOGIN, '1') } catch { /* */ }

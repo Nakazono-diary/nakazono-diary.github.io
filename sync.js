@@ -8,6 +8,7 @@ const SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
 const API = 'https://www.googleapis.com/drive/v3'
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3'
 const MAIN = 'diary-main.v1.enc'           // 記録と設定(写真・録音の中身は別のファイル)
+const KENMEI = 'kenmei.v1.enc'             // 件名ブリッジ(会社の PC)が置く件名リスト。同じ合言葉・同じ salt で鍵をかけてある(v0.15)
 const blobName = (kind, id) => `${kind}-${id}.enc`   // kind: p = 写真、a = 録音
 const TOKEN_KEY = 'diary.gtoken'
 const STATE_KEY = 'diary.gstate'
@@ -135,4 +136,4 @@ export function mergeEntries(local, remote, tombsL, tombsR) {
   for (const e of map.values()) if (!(tombs[e.id] && tombs[e.id] >= ver(e))) out.push(e)
   return { entries: out, tombs }
 }
-export { b64, unb64, MAIN, blobName }
+export { b64, unb64, MAIN, KENMEI, blobName }
