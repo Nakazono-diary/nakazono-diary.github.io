@@ -8,7 +8,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.13.1'
+const VERSION = '0.14.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -563,13 +563,54 @@ async function quickRecord(b) {
       for (const x of ended) { const c = await getEntry(x.id); if (c) { delete c.end; delete c.end_by; await putEntry(c) } }
       render() } },
   ])
-  if (b.askMove || b.askProject || b.form === 'bowel' || b.askPlace) openMovePick(e, b)
-  else closeMovePick()
+  // どのボタンでも、押した直後に「押し忘れ? 本当は何分前?」を出す(v0.14)
+  openMovePick(e, b, ended, now)
+}
+
+// 押し忘れて、あとから押したとき: 本当の時刻にさかのぼる(v0.14。本人 2026-11-04「忘れてて後から入力することが多々ある」)
+// 押した時刻から「○分前」か、時刻を選ぶ。組で終えた記録(就寝・出発など)の終わりと、1本目の移動手段の時刻も一緒に動かす
+function backdateRow(e, ended, pressed) {
+  const status = h('span', { class: 'bd-status' })
+  const apply = async (when) => {
+    if (when > new Date()) when = new Date(when.getTime() - 86400000)      // いまより先の時刻なら、前の日のこと
+    const cur = await getEntry(e.id)
+    if (!cur) return
+    const ts = stamp(when)
+    for (const x of ended) {
+      const c = await getEntry(x.id)
+      if (c && c.at >= ts) { showToast(`「${c.label}」(${hm(c.at)})より前にはできません`); return }
+    }
+    const legs = legsOf(cur)
+    if (legs.length > 1 && legs[1].at <= ts) { showToast('乗りかえの時刻より後にはできません。「直す」で直してください'); return }
+    const next = { ...cur, at: ts, day: dayOf(when), updated_at: stamp(new Date()) }
+    if (legs.length && legs[0].at === cur.at) { next.legs = [{ ...legs[0], at: ts }, ...legs.slice(1)]; next.moves = next.legs.map(l => l.mode) }
+    await putEntry(next)
+    for (const x of ended) {
+      const c = await getEntry(x.id)
+      if (c && c.end_by === e.id) await putEntry({ ...c, end: ts, updated_at: stamp(new Date()) })
+    }
+    status.textContent = `→ ${hm(ts)} にしました`
+    await render()
+  }
+  const chip = (min) => h('button', { type: 'button', class: 'bd-chip', text: min < 60 ? `${min}分前` : `${min / 60}時間前`,
+    onclick: () => apply(new Date(pressed.getTime() - min * 60000)) })
+  const timeIn = h('input', { type: 'time', class: 'input small bd-time', 'aria-label': '本当の時刻' })
+  timeIn.addEventListener('change', () => {
+    if (!timeIn.value) return
+    const [H, M] = timeIn.value.split(':').map(Number)
+    const d = new Date(pressed); d.setHours(H, M, 0, 0)
+    apply(d)
+  })
+  return h('div', { class: 'bd' },
+    h('p', { class: 'mp-label', text: `押し忘れ? 本当の時刻にさかのぼる(いまは ${hm(stamp(pressed))})` }),
+    h('div', { class: 'bd-row' }, ...[5, 10, 15, 30, 60].map(chip), timeIn, status))
 }
 
 // ボタンを押した直後: 件名・工程や移動手段を、その場で付ける(選ぶたびに保存)
-function openMovePick(e, b) {
+let movePickTimer = null
+function openMovePick(e, b, ended = [], pressed = new Date()) {
   const box = $('#movepick')
+  clearTimeout(movePickTimer)
   const update = async (patch) => {
     const now = await getEntry(e.id)
     if (!now) return
@@ -613,13 +654,20 @@ function openMovePick(e, b) {
     parts.push(label, row)
   } else if (b.askMove) parts.push(h('p', { class: 'mp-label', text: '移動手段は?' }), movePicker([], (keys) => update({ moves: [...keys] })))
   if (b.form === 'bowel') parts.push(h('p', { class: 'mp-label', text: 'かたさは?' }), bowelPicker(null, (bw) => update({ bowel: bw })))
+  const onlyTime = !parts.length
+  parts.push(backdateRow(e, ended, pressed))
+  // 時刻だけの欄は、触らなければ20秒で閉じる(押すたびに欄が残らないように)
+  if (onlyTime) {
+    movePickTimer = setTimeout(closeMovePick, 20000)
+    box.addEventListener('pointerdown', () => clearTimeout(movePickTimer), { once: true })
+  }
   box.replaceChildren(
     h('div', { class: 'mp-top' }, h('strong', { text: `「${e.label}」` }),
       h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: closeMovePick })),
     ...parts)
   box.hidden = false
 }
-function closeMovePick() { const box = $('#movepick'); box.hidden = true; box.replaceChildren() }
+function closeMovePick() { clearTimeout(movePickTimer); const box = $('#movepick'); box.hidden = true; box.replaceChildren() }
 
 function showToast(text, actions = []) {
   const t = $('#toast')

@@ -393,3 +393,10 @@ button, input, textarea { font: inherit; color: inherit; }
 .sync-btn { margin-left: 6px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line2); background: var(--surface); font-size: 12px; color: var(--accent); font-weight: 700; }
 .sync-btn.busy { opacity: .5; }
 .warn { color: var(--danger); font-weight: 700; }
+/* 押し忘れ: 本当の時刻にさかのぼる(v0.14) */
+.bd { margin-top: 6px; }
+.bd-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.bd-chip { height: 38px; padding: 0 12px; border-radius: 19px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 14px; font-weight: 600; }
+.bd-chip:active { background: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
+.bd-time { width: 110px; }
+.bd-status { font-size: 14px; font-weight: 700; color: #15803d; }
