@@ -1,6 +1,8 @@
 // 日記・タイムライン: ボタンで記録、文章と写真を書き足す、今日のタイムラインに並ぶ。
 // 記録はスマホの中だけ(store.js)。よそのサイトには何も送らない・何も読み込まない。
 import * as S from './sync.js'
+import * as ED from './edition.js'
+import * as PJ from './projects.js'
 import { allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 import { h } from './dom.js'
@@ -8,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.16.1'
+const VERSION = '0.17.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -23,7 +25,7 @@ const DEFAULT_BUTTONS = [
   { kind: 'sleep', label: '就寝', icon: '🌙', tab: 'flow', span: true },
   { kind: 'meal', label: '食事', icon: '🍽️', tab: 'flow', span: true },
   { kind: 'bath', label: '入浴', icon: '🛁', tab: 'flow', span: true },   // v0.16(本人 2026-11-05「入浴がないね」)
-  { kind: 'work', label: '作業', icon: '💻', tab: 'do', askProject: true, span: true },
+  { kind: 'work', label: '作業', icon: '💻', tab: 'do', ...(PJ.ENABLED ? { askProject: true } : {}), span: true },
   { kind: 'lunch', label: '昼休み', icon: '🍙', tab: 'do', span: true },
   { kind: 'break', label: '休憩', icon: '☕', tab: 'do', span: true },
   { kind: 'resume', label: '再開', icon: '▶️', tab: 'do' },
@@ -64,38 +66,6 @@ const ICONS = ['⭐', '☀️', '🌙', '🛁', '🚪', '📍', '🏢', '🌆', 
   '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊', '🔙', '🚃', '🚌', '🚲']
 
 let BUTTONS = DEFAULT_BUTTONS.map(b => ({ ...b }))
-// タスク管理から読み込んだ件名リスト(件名名と工程名だけ。一方通行で、こちらからは何も返さない)
-let PROJECTS = { exported_at: '', projects: [] }
-// 件名リストの中身を、名前と工程名だけにそろえる(ファイルからでも、件名ブリッジからでも)
-const cleanProjects = (list) => list.filter(p => p && typeof p.title === 'string' && p.title.trim())
-  .map(p => ({ title: p.title.trim(), steps: Array.isArray(p.steps) ? p.steps.filter(x => typeof x === 'string' && x.trim()) : [] }))
-async function loadProjects() {
-  try { const v = await getSetting('projects'); if (v && Array.isArray(v.projects)) PROJECTS = v } catch { /* なくても動く */ }
-}
-const projectText = (pj) => (pj && pj.title ? `🏗️ ${pj.title}${pj.step ? ` ・ ${pj.step}` : ''}` : '')
-
-// 件名と工程を選ぶ欄(2つのプルダウン)。value: { title, step } か null
-function projectPicker(value, onChange) {
-  const cur = value ? { ...value } : { title: '', step: '' }
-  const titles = PROJECTS.projects.map(p => p.title)
-  if (cur.title && !titles.includes(cur.title)) titles.unshift(cur.title)   // 昔の件名(今のリストにない)も残す
-  const tSel = h('select', { class: 'input pj-sel', 'aria-label': '件名' }, h('option', { value: '', text: '件名なし' }), ...titles.map(t => h('option', { value: t, text: t })))
-  const sSel = h('select', { class: 'input pj-sel', 'aria-label': '工程' })
-  const fillSteps = () => {
-    const p = PROJECTS.projects.find(x => x.title === tSel.value)
-    const steps = p ? [...p.steps] : []
-    if (cur.step && !steps.includes(cur.step) && cur.title === tSel.value) steps.unshift(cur.step)
-    sSel.replaceChildren(h('option', { value: '', text: '工程なし' }), ...steps.map(n => h('option', { value: n, text: n })))
-    sSel.disabled = !tSel.value
-  }
-  tSel.value = cur.title; fillSteps(); sSel.value = cur.step || ''
-  const emit = () => onChange(tSel.value ? { title: tSel.value, step: sSel.value || '' } : null)
-  tSel.addEventListener('change', () => { fillSteps(); sSel.value = ''; emit() })
-  sSel.addEventListener('change', emit)
-  const note = PROJECTS.projects.length ? null
-    : h('p', { class: 'hint', text: 'まだ件名リストがありません。タスク管理の「日記用に件名一覧を書き出す」のファイルを、「バックアップ」から読み込んでください。' })
-  return h('div', { class: 'pj-pick' }, tSel, sSel, note)
-}
 async function loadButtons() {
   try {
     const v = await getSetting('buttons')
@@ -263,7 +233,7 @@ async function registerPlace(loc, name, addr = '') {
 }
 // 名前を付ける欄(位置はあるが登録の場所がないとき)
 function placeNamer(loc, onDone) {
-  const inp = h('input', { class: 'input add-in', maxlength: '30', placeholder: '例: 自宅、大和設計、〇〇病院', 'aria-label': 'この場所の名前' })
+  const inp = h('input', { class: 'input add-in', maxlength: '30', placeholder: ED.TEXT.placeExample, 'aria-label': 'この場所の名前' })
   const go = async () => {
     const name = inp.value.trim()
     if (!name) { inp.focus(); return }
@@ -483,7 +453,7 @@ async function card(e) {
   }
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
-  if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: projectText(e.project) }))
+  if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: PJ.projectText(e.project) }))
   if (legsOf(e).length) {
     const p = h('p', { class: 'tl-moves' + (e.end ? '' : ' live-legs'), text: legsText(e) })
     p._entry = e
@@ -645,7 +615,7 @@ function openMovePick(e, b, ended = [], pressed = new Date()) {
       }
     })
   }
-  if (b.askProject) parts.push(h('p', { class: 'mp-label', text: '件名・工程は?' }), projectPicker(null, (pj) => update({ project: pj })))
+  if (b.askProject && PJ.ENABLED) parts.push(h('p', { class: 'mp-label', text: '件名・工程は?' }), PJ.projectPicker(null, (pj) => update({ project: pj })))
   if (b.askMove && b.span) {
     // 長さのある移動: 最初の移動手段を1つ選ぶ。2回目からは「乗りかえ」(下の帯と同じ。1分以内なら選び直し)
     // 前はここで押すと最初の手段が入れかわり、移動の全部がその手段になっていた(本人 2026-11-03「全部電車に変わった」)
@@ -1050,14 +1020,14 @@ async function openEditor(id, preset = {}) {
       h('div', {}, h('span', { class: 'ed-label', text: '場所' }), placeBox),
       h('div', {}, h('span', { class: 'ed-label', text: '種類' }), kindBox),
       secHealth, secBowel, secWeather,
-      h('div', {}, h('span', { class: 'ed-label', text: '件名・工程(タスク管理の件名リストから)' }), projectPicker(st.project, (pj) => { st.project = pj })),
+      PJ.ENABLED ? h('div', {}, h('span', { class: 'ed-label', text: PJ.PICK_LABEL }), PJ.projectPicker(st.project, (pj) => { st.project = pj })) : null,
       h('div', {}, h('span', { class: 'ed-label', text: legsMode ? '移動手段と乗りかえの時刻' : '移動手段(いくつでも・押した順)' }), legsMode ? legsBox : movePicker(st.moves)),
       h('div', {}, h('span', { class: 'ed-label', text: '文章' }), ta,
         h('p', { class: 'hint', text: !editing && saved && saved.text ? '書きかけを戻しました。' : '書きかけは自動で取っておきます。' })),
       h('div', {}, h('span', { class: 'ed-label', text: '写真' }), strip, fileIn, addPhoto,
         h('p', { class: 'hint', text: '写真は小さくして、このスマホの中にしまいます(撮影場所の情報は消えます)。' })),
       h('div', {}, h('span', { class: 'ed-label', text: '録音' }), audioBox, rec.el,
-        h('p', { class: 'hint', text: '声はこのスマホの中だけにしまいます。文字にするのは、ミニPCに移ってから(Whisper)。いまはキーボードのマイクで文章に入れられます。' })),
+        h('p', { class: 'hint', text: ED.TEXT.voiceHint })),
       msg),
     h('div', { class: 'sheet-foot' },
       editing ? h('button', { type: 'button', class: 'danger-btn', text: '消す', onclick: remove }) : null,
@@ -1124,7 +1094,8 @@ function dataURLToBlob(url) {
 async function planImport(file) {
   let data
   try { data = JSON.parse(await file.text()) } catch { throw new Error('日記の書き出しファイルではないようです(読めませんでした)') }
-  if (data && data.app === 'taskapp-names') throw new Error('これはタスク管理の件名リストです。下の「タスク管理の件名リスト」から読み込んでください')
+  const other = PJ.otherFileMessage(data)
+  if (other) throw new Error(other)
   if (!data || data.app !== 'diary' || !Array.isArray(data.entries)) throw new Error('日記の書き出しファイルではないようです')
   const photos = data.photos && typeof data.photos === 'object' ? data.photos : {}
   const plan = { add: [], replace: [], same: 0, bad: 0, photos: 0, exported_at: data.exported_at || '', buttons: [], buttonsAll: null }
@@ -1204,36 +1175,6 @@ async function applyImport(plan) {
   for (const [key, add] of Object.entries(plan.lists || {})) await LISTS.save(key, [...LISTS[key], ...add])
   if (plan.places && plan.places.length) await savePlaces([...PLACES, ...plan.places])
   return photos
-}
-
-// タスク管理の件名リスト(kenmei-日付.json)を読み込む。読み込むたびに入れ替える
-function namesCard() {
-  const status = h('p')
-  const msg = h('p', { class: 'bk-msg', 'aria-live': 'polite' })
-  const paint = () => {
-    const n = PROJECTS.projects.length
-    status.textContent = n ? `いま入っている件名: ${n}件(${(PROJECTS.exported_at || '').slice(0, 10)} に書き出したもの)` : 'まだ読み込んでいません。'
-  }
-  const fileIn = h('input', { type: 'file', accept: '.json,application/json', class: 'visually-hidden', id: 'names-in', 'aria-label': '件名リストのファイルを選ぶ' })
-  fileIn.addEventListener('change', async () => {
-    const f = fileIn.files[0]; fileIn.value = ''
-    if (!f) return
-    msg.className = 'bk-msg'
-    try {
-      const d = JSON.parse(await f.text())
-      if (!d || d.app !== 'taskapp-names' || !Array.isArray(d.projects)) throw new Error('タスク管理の件名リストではないようです')
-      const projects = cleanProjects(d.projects)
-      PROJECTS = { exported_at: typeof d.exported_at === 'string' ? d.exported_at : '', projects }
-      await putSetting('projects', PROJECTS)
-      paint()
-      msg.className = 'bk-msg ok'; msg.textContent = `件名 ${projects.length}件を読み込みました。`
-    } catch (err) { msg.className = 'bk-msg err'; msg.textContent = err instanceof SyntaxError ? '読めないファイルでした' : (err.message || String(err)) }
-  })
-  paint()
-  return h('section', { class: 'bk-card' },
-    h('h3', { text: 'タスク管理の件名リスト' }),
-    h('p', { text: 'タスク管理の「日記用に件名一覧を書き出す」でできたファイルを読み込むと、「作業」などで件名と工程を選べます。件名と工程の名前だけで、日記からタスク管理へは何も送りません。' }),
-    status, fileIn, h('label', { class: 'secondary-btn as-btn', for: 'names-in', text: '件名リストを読み込む' }), msg)
 }
 
 // 潮位表(気象庁)を読み込む。読み込んだあとは外につながらない
@@ -1348,7 +1289,7 @@ function openBackup() {
         confirmBox),
       msg,
       syncCard(),
-      namesCard(),
+      PJ.namesCard(),
       tideCard(),
       h('section', { class: 'bk-note' },
         h('h3', { text: '記録はどこにある?' }),
@@ -1439,7 +1380,7 @@ async function openStats() {
           h('p', { class: 'st-line', text: `${meals.length}回(${mealDays}日・1日あたり ${(meals.length / Math.max(1, mealDays)).toFixed(1)}回)` }),
           bars(slots.filter(x => x.n).map(x => ({ icon: '', label: x.label, value: Math.round(x.avg), sub: `${x.n}回の平均` }))))
           : h('p', { class: 'muted', text: 'まだ終わりまで記録した食事がありません。食べ始めに「食事」、食べ終わったらもう一度「食事」(か「終わった」)を押すと、ここに集まります。' })),
-      h('p', { class: 'hint', text: '仕事の時間はタスク管理で見るので、ここには入れていません。集計はスマホの中だけで計算しています。' }))
+      h('p', { class: 'hint', text: `${PJ.STATS_NOTE}集計はスマホの中だけで計算しています。` }))
   }
   sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '統計' },
     h('div', { class: 'sheet-top' }, h('h2', { text: '統計' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
@@ -1551,7 +1492,7 @@ function openButtonSettings() {
               if (!confirm(`「${b.label || '新しいボタン'}」を消しますか?(記録した分は残ります)`)) return
               list = list.filter(x => x !== b); paint() } })),
           h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'),
-            h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く'), tabSel))
+            PJ.ENABLED ? h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く') : null, tabSel))
         sec.append(row)
         if (pickFor === b.kind) {
           sec.append(h('div', { class: 'icon-grid', role: 'group', 'aria-label': '絵を選ぶ' },
@@ -1591,14 +1532,14 @@ function openButtonSettings() {
 
 // ---------- グーグルドライブで同期(v0.13。中身は鍵をかけてから送る。sync.js) ----------
 // Google Cloud で作った「OAuth クライアント ID」(秘密ではない。ここに入れておけば各端末で入れずに済む)
-const DEFAULT_CLIENT_ID = '1015317495163-vjr878t25upmdej6v5jgpbr46daaqghl.apps.googleusercontent.com'
+const DEFAULT_CLIENT_ID = ED.CLIENT_ID
 const SYNC_AFTER_LOGIN = 'diary.syncAfterLogin'
 let syncing = false
 async function syncCfg() { return { clientId: DEFAULT_CLIENT_ID, ...((await getSetting('sync')) || {}) } }
 function paintSyncFoot(cfg) {
   const on = !!(cfg && cfg.lastSync)
   $('#where').textContent = on ? '記録はこの端末と、鍵をかけてグーグルドライブに' : '記録はこの端末の中だけ'
-  $('#sync-btn').title = on ? `最後の同期: ${cfg.lastSync.slice(5, 16).replace('T', ' ')}` : 'グーグルドライブで、スマホと Surface の記録を合わせる'
+  $('#sync-btn').title = on ? `最後の同期: ${cfg.lastSync.slice(5, 16).replace('T', ' ')}` : 'グーグルドライブで、ほかの端末と記録を合わせる'
 }
 
 // 合言葉を聞く窓。mode: 'new' = 初めて決める(2回入れる)、'enter' = ほかの端末で決めた合言葉を入れる
@@ -1626,7 +1567,7 @@ function askPass(mode, note = '') {
           ? h('div', { class: 'bk-note' }, h('h3', { text: '大事なこと' }),
             h('p', { text: '記録は、この合言葉で鍵をかけてからグーグルドライブに置きます。Google にも、ほかの人にも中身は読めません。' }),
             h('p', { class: 'warn', text: '合言葉を忘れると、ドライブの分は誰にも開けません(Google にも)。紙などに控えておいてください。' }),
-            h('p', { text: 'スマホと Surface で同じ合言葉を使います。この端末では、次からは聞きません。' }))
+            h('p', { text: `${ED.TEXT.devices}で同じ合言葉を使います。この端末では、次からは聞きません。` }))
           : h('p', { text: 'ほかの端末で決めた合言葉を入れてください。この端末では、次からは聞きません。' }),
         h('div', {}, h('span', { class: 'ed-label', text: '合言葉' }), p1),
         mode === 'new' ? h('div', {}, h('span', { class: 'ed-label', text: '合言葉(もう一度)' }), p2) : null,
@@ -1734,22 +1675,8 @@ async function runSync(report = (t) => showToast(t)) {
       const add = ((rs.lists || {})[key] || []).filter(x => typeof x === 'string' && !LISTS[key].includes(x))
       if (add.length) await LISTS.save(key, [...LISTS[key], ...add])
     }
-    if (rs.projects && Array.isArray(rs.projects.projects) && (rs.projects.exported_at || '') > (PROJECTS.exported_at || '')) { PROJECTS = rs.projects; await putSetting('projects', PROJECTS) }
-    // 件名ブリッジ(会社の PC)が置いた件名リスト。新しく書き出したほうを使う(v0.15)
-    let gotK = 0, kenmeiNote = ''
-    const kf = byName.get(S.KENMEI)
-    if (kf) {
-      try {
-        const d = JSON.parse(new TextDecoder().decode(await S.open(k.key, await S.download(token, kf.id))))
-        if (d && d.app === 'taskapp-names' && Array.isArray(d.projects) && (d.exported_at || '') > (PROJECTS.exported_at || '')) {
-          PROJECTS = { exported_at: d.exported_at || '', projects: cleanProjects(d.projects) }
-          await putSetting('projects', PROJECTS); gotK = PROJECTS.projects.length
-        }
-      } catch (err) {
-        if (err.message !== 'WRONG_PASS') throw err
-        kenmeiNote = '件名ブリッジの件名リストが開けませんでした(合言葉を変えたときは、ブリッジの合言葉も入れ直してください)'
-      }
-    }
+    // 件名リスト(この版で使うときだけ。projects.js)
+    const { got: gotK, note: pjNote } = await PJ.syncPull(rs, byName, (id) => S.download(token, id), (buf) => S.open(k.key, buf))
     if (rs.tide && !TIDE) { TIDE = rs.tide; await putSetting('tide', TIDE) }
 
     // 3. 写真・録音で、ドライブにないものを送る(鍵をかけて)。使われなくなったものはドライブから消す
@@ -1782,7 +1709,7 @@ async function runSync(report = (t) => showToast(t)) {
     const sentD = Object.keys(tombs).filter(id => !((remote && remote.tombs) || {})[id] && remoteBy.has(id)).length
     // 4. 本体(記録と設定)を、鍵をかけて置く
     const body = { app: 'diary-sync', format: 1, version: VERSION, saved_at: stamp(new Date()), entries: now, tombs, photoMeta, audioMeta,
-      settings: { buttons: await getSetting('buttons'), places: PLACES, lists: { meds: LISTS.meds, symptoms: LISTS.symptoms }, projects: PROJECTS, tide: TIDE } }
+      settings: { buttons: await getSetting('buttons'), places: PLACES, lists: { meds: LISTS.meds, symptoms: LISTS.symptoms }, projects: PJ.data(), tide: TIDE } }
     await S.upload(token, S.MAIN, await S.seal(k.key, salt, new TextEncoder().encode(JSON.stringify(body))), mainF && mainF.id)
 
     const next = { ...cfg, lastSync: stamp(new Date()) }
@@ -1793,7 +1720,7 @@ async function runSync(report = (t) => showToast(t)) {
     const parts = [added && `受け取った記録 ${added}件`, changed && `新しくなった記録 ${changed}件`, removed && `ほかで消した記録 ${removed}件`,
       (gotP || gotA) && `受け取った写真・録音 ${gotP + gotA}`, sentE && `送った記録 ${sentE}件`, sentD && `消したことを伝えた記録 ${sentD}件`,
       (sentP || sentA) && `送った写真・録音 ${sentP + sentA}`, gotK && `新しい件名リスト ${gotK}件`].filter(Boolean)
-    report(`同期しました${parts.length ? `(${parts.join('・')})` : '(変わったところはありません)'}${kenmeiNote ? `。${kenmeiNote}` : ''}`)
+    report(`同期しました${parts.length ? `(${parts.join('・')})` : '(変わったところはありません)'}${pjNote ? `。${pjNote}` : ''}`)
   } catch (err) {
     if (err instanceof S.AuthError) {
       try { sessionStorage.setItem(SYNC_AFTER_LOGIN, '1') } catch { /* */ }
@@ -1828,9 +1755,11 @@ function syncCard() {
   } })
   paint()
   return h('div', { class: 'bk-card' }, h('h3', { text: 'グーグルドライブで同期(鍵つき)' }),
-    h('p', { text: 'スマホと Surface の記録を合わせます。中身はこの端末で合言葉の鍵をかけてから、ドライブのアプリ専用の隠しフォルダに置きます(Google にも読めません)。消した記録は、ほかの端末からも消えます。' }),
+    h('p', { text: `${ED.TEXT.devices}の記録を合わせます。中身はこの端末で合言葉の鍵をかけてから、ドライブのアプリ専用の隠しフォルダに置きます(Google にも読めません)。消した記録は、ほかの端末からも消えます。` }),
     status,
     h('div', {}, h('span', { class: 'ed-label', text: 'Google のクライアント ID(最初に1回)' }), idIn),
+    ED.SETUP_GUIDE ? h('p', { class: 'hint' }, 'クライアント ID は、使う人が自分の Google アカウントで作ります(無料)。作り方: ', h('a', { href: ED.SETUP_GUIDE, target: '_blank', rel: 'noopener', text: 'グーグルドライブ同期の準備' })) : null,
+    ED.SETUP_GUIDE ? h('p', { class: 'hint' }, '準備のときに入れる場所 → 承認済みの JavaScript 生成元: ', h('code', { text: location.origin }), ' / 承認済みのリダイレクト URI: ', h('code', { text: S.redirectUri() })) : null,
     h('div', { class: 'bk-row' }, goBtn, forgetBtn), msg)
 }
 
@@ -1846,7 +1775,7 @@ function isStandalone() {
 // ---------- 起動 ----------
 async function main() {
   await loadButtons()
-  await loadProjects()
+  await PJ.load()
   await loadLists()
   buildButtons()
   $('#write').addEventListener('click', () => { closeMovePick(); openEditor(null) })
@@ -1859,7 +1788,7 @@ async function main() {
   $('#day-next').addEventListener('click', () => goDay(addDays(shownDay(), 1)))
   $('#day-today').addEventListener('click', () => goDay(null))
   $('#day-pick').addEventListener('change', (ev) => { if (ev.target.value) goDay(ev.target.value) })
-  // 広い画面(Surface など)では、← → のキーでも日を動かす(入力中は動かさない)
+  // 広い画面(タブレット・パソコン)では、← → のキーでも日を動かす(入力中は動かさない)
   document.addEventListener('keydown', (ev) => {
     if (!$('#sheet').hidden || /INPUT|TEXTAREA|SELECT/.test((ev.target || {}).tagName || '')) return
     if (ev.key === 'ArrowLeft') goDay(addDays(shownDay(), -1))

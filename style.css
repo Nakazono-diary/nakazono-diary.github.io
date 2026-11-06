@@ -376,7 +376,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .band-sleep { background: #4f46e5; } .band-work { background: #16a34a; } .band-move { background: #d97706; }
 .band-out { background: #0891b2; } .band-meal { background: #e11d48; } .band-rest { background: #a3a3a3; } .band-other { background: #64748b; }
 
-/* 広い画面(Surface・パソコン): 左にその日の記録、右にボタン(v0.12) */
+/* 広い画面(タブレット・パソコン): 左にその日の記録、右にボタン(v0.12) */
 @media (min-width: 900px) {
   body { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto auto minmax(0, 1fr);
     height: 100vh; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
@@ -404,3 +404,7 @@ button, input, textarea { font: inherit; color: inherit; }
 /* v0.16.1 つながっている記録も一緒に動かす */
 .ed-link { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; padding: 8px 10px; border-radius: 10px; background: var(--btn-soft); color: var(--btn-ink); }
 .ed-link input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+
+/* 案内のリンク */
+.hint a { color: var(--accent); }
+.hint code { font-size: 12px; word-break: break-all; }

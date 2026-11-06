@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>同期の準備</title>
+<style>
+:root { --bg: #f5f7f9; --surface: #fff; --text: #1b2733; --muted: #52606d; --line: #e1e7ec; --accent: #1e4e8c; --warn: #9a3412; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0f141c; --surface: #18202b; --text: #e5e9f0; --muted: #a3adbb; --line: #2a3442; --accent: #93b4ff; --warn: #fdba74; } }
+:root[data-theme="dark"] { --bg: #0f141c; --surface: #18202b; --text: #e5e9f0; --muted: #a3adbb; --line: #2a3442; --accent: #93b4ff; --warn: #fdba74; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif; line-height: 1.75; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 60px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 18px; margin: 28px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.lead { color: var(--muted); margin-top: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 12px 0; }
+.warn { color: var(--warn); }
+ol { padding-left: 1.4em; } li { margin: 6px 0; }
+code { background: var(--line); padding: 1px 6px; border-radius: 5px; font-size: .92em; word-break: break-all; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1>グーグルドライブ同期の準備</h1>
+<p class="lead">スマホとパソコンなど、いくつかの端末で同じ日記を使うための準備です。1つの端末だけで使うなら、この準備はいりません。</p>
+
+<div class="card">
+<strong>どういうしくみ?</strong><br>
+日記の中身は、端末の中で<strong>合言葉の鍵</strong>をかけてから、あなた自身のグーグルドライブの「アプリ専用の隠しフォルダ」に置きます。
+Google にも、このアプリを配った人にも、中身は読めません。<br>
+そのために、<strong>あなた自身の Google アカウントで「クライアント ID」を1つ作ります</strong>(無料。15分ほど)。作るのは最初に1回だけです。
+</div>
+
+<h2>1. Google Cloud で「プロジェクト」を作る</h2>
+<ol>
+<li>パソコンで <code>https://console.cloud.google.com/</code> を開き、ふだん使う Google アカウントでログインします。</li>
+<li>上の「プロジェクトを選択」→「新しいプロジェクト」。名前は何でもかまいません(例: <code>diary</code>)。</li>
+<li>作ったプロジェクトが選ばれていることを確かめます。</li>
+</ol>
+
+<h2>2. ドライブを使えるようにする</h2>
+<ol>
+<li>左のメニュー「API とサービス」→「ライブラリ」。</li>
+<li>「Google Drive API」を探して「有効にする」。</li>
+</ol>
+
+<h2>3. 同意画面(ログインのときに出る画面)を作る</h2>
+<ol>
+<li>「API とサービス」→「OAuth 同意画面」(画面によっては「Google Auth Platform」)→「開始」。</li>
+<li>アプリ名(例: <code>日記</code>)とサポートのメール(自分のアドレス)を入れます。</li>
+<li>対象は「<strong>外部</strong>」を選びます。</li>
+<li>「対象」(または「テストユーザー」)で、<strong>自分の Google アカウントのアドレスを足します</strong>。公開の申請はしません(テストのままで使えます)。</li>
+<li>「データアクセス」(または「スコープ」)で <code>.../auth/drive.appdata</code> を足します(アプリ専用の隠しフォルダだけ。ふつうのドライブのファイルには触りません)。</li>
+</ol>
+
+<h2>4. クライアント ID を作る</h2>
+<ol>
+<li>「API とサービス」→「認証情報」(または「クライアント」)→「認証情報を作成」→「OAuth クライアント ID」。</li>
+<li>アプリケーションの種類は「<strong>ウェブ アプリケーション</strong>」。</li>
+<li>「承認済みの JavaScript 生成元」と「承認済みのリダイレクト URI」に、日記を開いている場所を入れます。<br>
+入れる文字は、日記の「バックアップ」→「グーグルドライブで同期(鍵つき)」の欄に出ています(そのまま写してください)。<br>
+例: 生成元 <code>https://example.github.io</code> / リダイレクト <code>https://example.github.io/diary/</code>(最後の <code>/</code> まで同じに)</li>
+<li>「作成」を押すと、<code>…apps.googleusercontent.com</code> で終わる「クライアント ID」が出ます。これを写します。</li>
+</ol>
+<p class="warn">「クライアント シークレット」は使いません。どこにも入れないでください。</p>
+
+<h2>5. 日記に入れる</h2>
+<ol>
+<li>日記の右上「バックアップ」→「グーグルドライブで同期(鍵つき)」の「Google のクライアント ID」に貼り付けて「同期する」。</li>
+<li>Google の画面に移るのでログインします。「Google はこのアプリを確認していません」と出たら、自分で作ったものなので「続行」で進めます。</li>
+<li>最初の端末で<strong>合言葉</strong>を決めます(8文字以上)。<span class="warn">忘れるとドライブの分は誰にも開けません。紙などに控えてください。</span></li>
+<li>2台目の端末でも、同じクライアント ID を入れて、同じ合言葉を入れます。</li>
+</ol>
+
+<h2>うまくいかないとき</h2>
+<ul>
+<li><strong>「redirect_uri_mismatch」</strong> … 4 で入れたリダイレクト URI が、日記の欄に出ているものと1文字でも違います(<code>/</code> や <code>index.html</code> の有無も)。</li>
+<li><strong>「access_denied」</strong> … 3 のテストユーザーに、ログインしたアカウントが入っていません。</li>
+<li><strong>ログインが1時間ほどで切れる</strong> … そういうしくみです(安全のため)。また「同期」を押せば、ログインし直します。</li>
+</ul>
+</main>
+</body>
+</html>
