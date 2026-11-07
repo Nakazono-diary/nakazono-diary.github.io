@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.17.3'
+const VERSION = '0.17.4'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1335,11 +1335,117 @@ function periodStart(key) {
   return '0000-00-00'
 }
 const STATS_KEY = 'diary.statsPeriod'
+// ---------- 1日の円グラフ・勤務時間(v0.17.4。本人「1日の時間を円グラフに」「勤務時間も入れて」) ----------
+// 1分ずつ、いちばん優先の高い種類を入れる(勤務中の昼休みは「休憩・食事」、移動は何より優先)
+const PIE_CATS = [
+  { key: 'none', label: '記録なし', cls: 'pc-none' },
+  { key: 'sleep', label: '睡眠', cls: 'pc-sleep', pri: 35 },
+  { key: 'work', label: '勤務・作業', cls: 'pc-work', pri: 20 },
+  { key: 'move', label: '移動', cls: 'pc-move', pri: 60 },
+  { key: 'out', label: '外出', cls: 'pc-out', pri: 40 },
+  { key: 'meal', label: '食事・昼休み', cls: 'pc-meal', pri: 50 },
+  { key: 'rest', label: '休憩', cls: 'pc-rest', pri: 45 },
+  { key: 'other', label: 'そのほか', cls: 'pc-other', pri: 30 },
+]
+const PIE_IDX = Object.fromEntries(PIE_CATS.map((c, i) => [c.key, i]))
+function pieCat(e) {
+  if (isMoveEntry(e)) return 'move'
+  return ({ 'band-sleep': 'sleep', 'band-work': 'work', 'band-out': 'out', 'band-meal': 'meal', 'band-rest': 'rest' })[BAND_COLOR[e.kind]] || 'other'
+}
+// その日の 1440分ぶんの種類(PIE_CATS の番号)。記録が1つもない日は null
+function dayMinutes(day, all) {
+  const d0 = new Date(day + 'T00:00:00').getTime(), d1 = d0 + 86400000
+  const now = Date.now()
+  const mins = new Uint8Array(1440)
+  let any = false
+  for (const e of all) {
+    if (e.day === day) any = true
+    if (!e.span) continue
+    const a = new Date(e.at).getTime()
+    const b = e.end ? new Date(e.end).getTime() : (e.day <= day && d0 <= now && now < d1 ? now : a)
+    if (b <= d0 || a >= d1 || b <= a) continue
+    any = true
+    const ci = PIE_IDX[pieCat(e)], pri = PIE_CATS[ci].pri
+    for (let m = Math.max(0, Math.floor((a - d0) / 60000)); m < Math.min(1440, Math.ceil((b - d0) / 60000)); m++) {
+      const cur = mins[m]
+      if (!cur || PIE_CATS[cur].pri < pri) mins[m] = ci
+    }
+  }
+  return any ? mins : null
+}
+const SVGNS = 'http://www.w3.org/2000/svg'
+function svgEl(tag, attrs = {}, ...kids) {
+  const el = document.createElementNS(SVGNS, tag)
+  for (const [k, v] of Object.entries(attrs)) if (v != null) el.setAttribute(k, String(v))
+  for (const k of kids) if (k) el.append(typeof k === 'string' ? document.createTextNode(k) : k)
+  return el
+}
+// ドーナツの1切れ(角度は 0=上、時計回り。単位は割合 0〜1)
+function arcPath(f0, f1, R = 92, r = 56, c = 100) {
+  if (f1 - f0 >= 0.9999) f1 = f0 + 0.9999
+  const pt = (f, rad) => { const t = f * 2 * Math.PI; return [c + rad * Math.sin(t), c - rad * Math.cos(t)] }
+  const [x0, y0] = pt(f0, R), [x1, y1] = pt(f1, R), [x2, y2] = pt(f1, r), [x3, y3] = pt(f0, r)
+  const big = f1 - f0 > 0.5 ? 1 : 0
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${R} ${R} 0 ${big} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}L${x2.toFixed(2)} ${y2.toFixed(2)}A${r} ${r} 0 ${big} 0 ${x3.toFixed(2)} ${y3.toFixed(2)}Z`
+}
+// 時計の円(その日の何時に何をしていたか)
+function clockPie(mins, center) {
+  const svg = svgEl('svg', { viewBox: '0 0 200 200', class: 'pie', role: 'img', 'aria-label': '1日の円グラフ' })
+  let start = 0
+  for (let m = 1; m <= 1440; m++) {
+    if (m === 1440 || mins[m] !== mins[start]) {
+      const c = PIE_CATS[mins[start]]
+      svg.append(svgEl('path', { d: arcPath(start / 1440, m / 1440), class: c.cls }, svgEl('title', {}, `${c.label} ${pad(Math.floor(start / 60))}:${pad(start % 60)}〜${pad(Math.floor(m / 60))}:${pad(m % 60)}`)))
+      start = m
+    }
+  }
+  for (let hh = 0; hh < 24; hh++) {
+    const t = hh / 24 * 2 * Math.PI, big = hh % 6 === 0
+    const r1 = big ? 50 : 53
+    svg.append(svgEl('line', { x1: 100 + r1 * Math.sin(t), y1: 100 - r1 * Math.cos(t), x2: 100 + 56 * Math.sin(t), y2: 100 - 56 * Math.cos(t), class: 'pie-tick' }))
+    if (big) svg.append(svgEl('text', { x: 100 + 41 * Math.sin(t), y: 100 - 41 * Math.cos(t) + 4, class: 'pie-hour' }, String(hh)))
+  }
+  svg.append(svgEl('text', { x: 100, y: 104, class: 'pie-center' }, center))
+  return svg
+}
+// 割合の円(平均の1日。種類ごとにまとめる)
+function sharePie(avg, center) {
+  const svg = svgEl('svg', { viewBox: '0 0 200 200', class: 'pie', role: 'img', 'aria-label': '平均の1日の円グラフ' })
+  const total = avg.reduce((a, b) => a + b, 0) || 1
+  let f = 0
+  avg.forEach((v, i) => { if (!v) return; const c = PIE_CATS[i]; svg.append(svgEl('path', { d: arcPath(f, f + v / total), class: c.cls }, svgEl('title', {}, `${c.label} ${fmtDur(v)}`))); f += v / total })
+  svg.append(svgEl('text', { x: 100, y: 104, class: 'pie-center' }, center))
+  return svg
+}
+function pieLegend(minsByCat) {
+  return h('div', { class: 'pie-legend' }, ...PIE_CATS.map((c, i) => [c, i]).filter(([, i]) => minsByCat[i] >= 1)
+    .sort((a, b) => (a[1] === 0) - (b[1] === 0) || minsByCat[b[1]] - minsByCat[a[1]])
+    .map(([c, i]) => h('span', { class: 'pie-key' }, h('i', { class: `pie-dot ${c.cls}` }), `${c.label} `, h('strong', { text: fmtDur(minsByCat[i]) }))))
+}
+// 勤務(出社〜退社)。昼休み・休憩の重なりを引いた「実働」も出す
+function workDays(all, inP) {
+  const rests = all.filter(e => e.span && e.end && (e.kind === 'lunch' || e.kind === 'break'))
+  const byDay = new Map()
+  for (const e of all) {
+    if (e.kind !== 'arrive' || !e.span || !e.end || !inP(e.day)) continue
+    const a = new Date(e.at).getTime(), b = new Date(e.end).getTime()
+    let rest = 0
+    for (const r of rests) { const x = Math.max(a, new Date(r.at).getTime()), y = Math.min(b, new Date(r.end).getTime()); if (y > x) rest += (y - x) / 60000 }
+    const d = byDay.get(e.day) || { day: e.day, gross: 0, net: 0, at: e.at, end: e.end }
+    d.gross += (b - a) / 60000; d.net += (b - a) / 60000 - rest
+    if (e.at < d.at) d.at = e.at
+    if (e.end > d.end) d.end = e.end
+    byDay.set(e.day, d)
+  }
+  return [...byDay.values()].sort((x, y) => (x.day < y.day ? -1 : 1))
+}
+
 async function openStats() {
   const sheet = $('#sheet')
   const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
   const all = await allEntries()
   let period = (() => { try { return localStorage.getItem(STATS_KEY) || 'month' } catch { return 'month' } })()
+  let pieDay = today, pieMode = 'day'
   const body = h('div', { class: 'sheet-body' })
   const bars = (rows, unit = 'min') => {
     const max = Math.max(1, ...rows.map(r => r.value))
@@ -1384,9 +1490,48 @@ async function openStats() {
     const slot = (e) => { const hh = Number(e.at.slice(11, 13)); return hh < 10 ? '朝' : hh < 15 ? '昼' : hh < 18 ? 'おやつ' : '夜' }
     const slots = ['朝', '昼', 'おやつ', '夜'].map(sname => { const l = meals.filter(e => slot(e) === sname); return { label: sname, n: l.length, avg: l.length ? l.reduce((a, e) => a + durMin(e.at, e.end), 0) / l.length : 0 } })
 
+    // 1日の円グラフ
+    let pieBox
+    if (pieMode === 'day') {
+      const mins = dayMinutes(pieDay, all)
+      const pick = h('input', { type: 'date', class: 'input pie-date', value: pieDay, max: today, 'aria-label': '円グラフの日' })
+      pick.addEventListener('change', () => { if (pick.value) { pieDay = pick.value; paint() } })
+      const cnt = new Array(PIE_CATS.length).fill(0)
+      if (mins) for (const m of mins) cnt[m]++
+      pieBox = h('div', {}, h('div', { class: 'pie-bar' }, pick),
+        mins ? h('div', { class: 'pie-wrap' }, clockPie(mins, `${Number(pieDay.slice(5, 7))}/${Number(pieDay.slice(8, 10))}`), pieLegend(cnt))
+          : h('p', { class: 'muted', text: 'この日は記録がありません。' }))
+    } else {
+      const sum = new Array(PIE_CATS.length).fill(0)
+      let n = 0
+      const days = [...new Set(all.map(e => e.day))].filter(d => inP(d) && d < today)
+      for (const d of days) { const mins = dayMinutes(d, all); if (!mins || mins.filter(x => x).length < 8 * 60) continue; n++; for (const m of mins) sum[m]++ }   // 記録が8時間に満たない日は入れない(平均がうすまるので)
+      const avg = sum.map(v => (n ? v / n : 0))
+      pieBox = n ? h('div', {}, h('p', { class: 'st-line', text: `記録が8時間以上ある ${n}日の平均(今日は入れていません)` }),
+        h('div', { class: 'pie-wrap' }, sharePie(avg, '平均の1日'), pieLegend(avg)))
+        : h('p', { class: 'muted', text: 'この期間には、記録が8時間以上ある日がまだありません。' })
+    }
+    // 勤務
+    const works = workDays(all, inP)
+    const wGross = works.reduce((a, d) => a + d.gross, 0), wNet = works.reduce((a, d) => a + d.net, 0)
+    const wRecent = works.slice(-7)
     body.replaceChildren(
       h('div', { class: 'st-periods', role: 'tablist' }, ...PERIODS.map(p => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': p.key === period ? 'true' : 'false', text: p.label,
         onclick: () => { period = p.key; try { localStorage.setItem(STATS_KEY, period) } catch { /* */ } paint() } }))),
+      h('section', { class: 'st-card' }, h('h3', { text: '🕐 1日の円グラフ' }),
+        h('div', { class: 'st-periods pie-modes', role: 'tablist' }, ...[['day', 'この日'], ['avg', '期間の平均']].map(([k, l]) => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': k === pieMode ? 'true' : 'false', text: l,
+          onclick: () => { pieMode = k; paint() } }))),
+        pieBox,
+        h('p', { class: 'hint', text: '時間が重なっているときは、移動 → 食事・昼休み → 休憩 → 外出 → 睡眠 → そのほか → 勤務・作業 の順に優先して色を付けています。' })),
+      h('section', { class: 'st-card' }, h('h3', { text: '🏢 勤務(出社〜退社)' }),
+        works.length ? h('div', {},
+          h('p', { class: 'st-big', text: `実働 ${fmtDur(wNet)}` }),
+          h('p', { class: 'st-line', text: `${works.length}日 ・ 1日平均 実働 ${fmtDur(wNet / works.length)}(出社〜退社 ${fmtDur(wGross / works.length)})` }),
+          h('p', { class: 'st-line', text: `出社の平均 ${hmAvg(works.map(d => d.at))} ・ 退社の平均 ${hmAvg(works.map(d => d.end))}` }),
+          h('p', { class: 'st-sub2', text: '最近の勤務(実働)' }),
+          bars(wRecent.map(d => ({ icon: '', label: `${Number(d.day.slice(5, 7))}/${Number(d.day.slice(8, 10))}`, value: Math.round(d.net), sub: `${hm(d.at)}〜${hm(d.end)}` }))),
+          h('p', { class: 'hint', text: '実働は、出社〜退社から「昼休み」「休憩」の時間を引いたものです。' }))
+          : h('p', { class: 'muted', text: 'まだ出社〜退社の記録がありません。会社に着いたら「出社」、出るときに「退社」を押すと、ここに集まります。' })),
       h('section', { class: 'st-card' }, h('h3', { text: '🚃 移動手段' }),
         modeRows.length ? bars(modeRows) : h('p', { class: 'muted', text: 'まだ時刻のある移動がありません。出発のあと、乗りかえるたびに下の帯の移動手段を押すと、ここに集まります。' }),
         commutes.length ? h('p', { class: 'st-line', text: `🏢 通勤(出発 → 出社): 平均 ${fmtDur(commuteAvg)}(${commutes.length}回)` }) : null,

@@ -6,7 +6,7 @@ import { h } from './dom.js'
 
 export const ENABLED = true
 export const PICK_LABEL = '件名・工程(タスク管理の件名リストから)'
-export const STATS_NOTE = '仕事の時間はタスク管理で見るので、ここには入れていません。'
+export const STATS_NOTE = ''   // v0.17.4 から勤務時間も統計に入れた(本人「勤務時間も入れて」)
 const KENMEI = 'kenmei.v1.enc'   // 件名ブリッジが置く件名リスト。同じ合言葉・同じ salt で鍵をかけてある(v0.15)
 
 // タスク管理から読み込んだ件名リスト(件名名と工程名だけ。一方通行で、こちらからは何も返さない)

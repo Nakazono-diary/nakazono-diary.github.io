@@ -421,3 +421,21 @@ button, input, textarea { font: inherit; color: inherit; }
 
 /* v0.17.3: ボタン設定はタブごとに見せる(上のタブは画面の上に止める) */
 .bs-tabs { position: sticky; top: -4px; z-index: 2; margin: 0 0 4px; flex-shrink: 0; min-height: 44px; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+
+/* v0.17.4: 1日の円グラフ */
+.pie-modes { margin-bottom: 8px; }
+.pie-bar { display: flex; justify-content: center; margin-bottom: 6px; }
+.pie-date { width: auto; height: 40px; }
+.pie-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.pie { width: min(280px, 80vw); height: auto; }
+.pie path { stroke: var(--surface); stroke-width: 0.6; }
+.pie-tick { stroke: var(--muted); stroke-width: 1; }
+.pie-hour { font-size: 11px; fill: var(--muted); text-anchor: middle; font-weight: 700; }
+.pie-center { font-size: 17px; fill: var(--text); text-anchor: middle; font-weight: 700; }
+.pie-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 13px; }
+.pie-key { display: inline-flex; align-items: center; gap: 4px; }
+.pie-dot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.pc-sleep { fill: #4f46e5; background: #4f46e5; } .pc-work { fill: #16a34a; background: #16a34a; } .pc-move { fill: #d97706; background: #d97706; }
+.pc-out { fill: #0891b2; background: #0891b2; } .pc-meal { fill: #e11d48; background: #e11d48; } .pc-rest { fill: #a3a3a3; background: #a3a3a3; }
+.pc-other { fill: #64748b; background: #64748b; } .pc-none { fill: color-mix(in srgb, var(--line) 70%, var(--surface)); background: color-mix(in srgb, var(--line) 70%, var(--surface)); }
+@media (min-width: 700px) { .pie-wrap { flex-direction: row; justify-content: center; } .pie-legend { flex-direction: column; } }
