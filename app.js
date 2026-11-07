@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.17.4'
+const VERSION = '0.17.5'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1077,6 +1077,17 @@ async function viewPhoto(pid) {
   v.onclick = () => { v.hidden = true; v.replaceChildren() }
 }
 
+// ---------- アプリ版(Android)のとき(v0.17.5) ----------
+// アプリの中ではファイルを落とす仕組み(a の download)が効かないので、アプリの一時置き場に書いてから
+// 「共有」の画面を出す(グーグルドライブ・ファイル・メールなどに、本人が選んで保存する)。
+const isNativeApp = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
+async function shareFileNative(name, text) {
+  const C = window.Capacitor
+  const w = await C.nativePromise('Filesystem', 'writeFile', { path: name, data: text, directory: 'CACHE', encoding: 'utf8' })
+  try { await C.nativePromise('Share', 'share', { title: name, files: [w.uri], dialogTitle: 'バックアップの保存先を選ぶ' }) }
+  catch (err) { if (!/cancel/i.test(String(err && (err.message || err)))) throw err }
+}
+
 // ---------- ファイルに書き出す(条件1: 最初から手で書き出せる。文章と写真も入れる) ----------
 async function exportFile(btn) {
   if (btn) btn.disabled = true
@@ -1094,11 +1105,16 @@ async function exportFile(btn) {
     }
     const data = { app: 'diary', format: 3, version: VERSION, exported_at: stamp(new Date()), entries, photos, audios, buttons: BUTTONS,
       lists: { meds: LISTS.meds, symptoms: LISTS.symptoms }, places: PLACES }
-    const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' })
-    const a = h('a', { href: URL.createObjectURL(blob), download: `diary-${dayOf(new Date())}.json` })
-    document.body.append(a)
-    a.click()
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500)
+    const name = `diary-${dayOf(new Date())}.json`
+    const text = JSON.stringify(data, null, 1)
+    if (isNativeApp()) await shareFileNative(name, text)
+    else {
+      const blob = new Blob([text], { type: 'application/json' })
+      const a = h('a', { href: URL.createObjectURL(blob), download: name })
+      document.body.append(a)
+      a.click()
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500)
+    }
     return { entries: entries.length, photos: Object.keys(photos).length, audios: Object.keys(audios).length }
   } finally { if (btn) btn.disabled = false }
 }
@@ -1249,7 +1265,7 @@ function openBackup() {
     msg.textContent = '書き出しています…'
     try {
       const n = await exportFile(expBtn)
-      msg.textContent = `記録 ${n.entries}件・写真 ${n.photos}枚${n.audios ? `・録音 ${n.audios}本` : ''}を書き出しました。スマホの「ダウンロード」に入ります。`
+      msg.textContent = `記録 ${n.entries}件・写真 ${n.photos}枚${n.audios ? `・録音 ${n.audios}本` : ''}を書き出しました。${isNativeApp() ? '選んだ保存先に入ります。' : 'スマホの「ダウンロード」に入ります。'}`
     } catch (err) { msg.className = 'bk-msg err'; msg.textContent = `書き出せませんでした: ${err.message || err}` }
   })
   const fileIn = h('input', { type: 'file', accept: '.json,application/json', class: 'visually-hidden', id: 'import-in', 'aria-label': '読み込むファイルを選ぶ' })
