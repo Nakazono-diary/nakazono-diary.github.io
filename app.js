@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.17.1'
+const VERSION = '0.17.2'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -497,13 +497,33 @@ async function card(e) {
 }
 
 // ---------- ボタンでいま記録 ----------
+// v0.17.2: 押し終わったら、ボタンの部分を下に引っ込める(本人「入力終わったら下に落ちるような」)。
+// 引っ込んでいても、タブの1行はいつも同じ場所に残す。タブを押すとまた出る。右の ▾ / ▴ でも出し入れできる。
+// 広い画面(2列)では引っ込めない(CSS で .down を効かせない)。
+const DOCK_KEY = 'diary.dockDown'
+function setDockDown(down) {
+  const dock = document.querySelector('.dock')
+  if (!dock || dock.classList.contains('down') === down) return
+  dock.classList.toggle('down', down)
+  const t = $('#dock-toggle')
+  t.textContent = down ? '▴' : '▾'
+  t.setAttribute('aria-label', down ? 'ボタンを出す' : 'ボタンをしまう')
+  t.setAttribute('aria-expanded', down ? 'false' : 'true')
+  try { localStorage.setItem(DOCK_KEY, down ? '1' : '') } catch { /* */ }
+}
+function initDock() {
+  let down = false
+  try { down = localStorage.getItem(DOCK_KEY) === '1' } catch { /* */ }
+  setDockDown(down)
+  $('#dock-toggle').addEventListener('click', () => setDockDown(!document.querySelector('.dock').classList.contains('down')))
+}
 const TAB_KEY = 'diary.tab'
 function currentTab() { try { return localStorage.getItem(TAB_KEY) || 'flow' } catch { return 'flow' } }
 function buildButtons() {
   const tab = TABS.some(t => t.key === currentTab()) ? currentTab() : 'flow'
   const bar = $('#tabs')
   bar.replaceChildren(...TABS.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === tab ? 'true' : 'false',
-    text: t.label, onclick: () => { try { localStorage.setItem(TAB_KEY, t.key) } catch { /* */ } buildButtons() } })))
+    text: t.label, onclick: () => { try { localStorage.setItem(TAB_KEY, t.key) } catch { /* */ } setDockDown(false); buildButtons() } })))
   const box = $('#buttons')
   const list = BUTTONS.filter(b => b.tab === tab)
   box.replaceChildren(...list.map(b => h('button', { type: 'button', class: 'rec-btn', onclick: () => pressButton(b) },
@@ -525,7 +545,7 @@ async function quickRecord(b) {
   const ongoing = await ongoingOf()
   // 同じボタンが続いている途中なら、それを終える(もう一度押す=終わった)
   const same = b.span ? ongoing.find(x => x.kind === b.kind) : null
-  if (same) { closeMovePick(); await finishNow(same); return }
+  if (same) { closeMovePick(); await finishNow(same); setDockDown(true); return }
   const e = { id: newId(), at: ts, day: dayOf(now), kind: b.kind, label: b.label, icon: b.icon, text: '', photos: [], created_at: ts, updated_at: ts, ...(b.span ? { span: true } : {}) }
   // 組になっているもの(就寝→起床 など)を終える
   const ended = ongoing.filter(x => (END_BY[x.kind] || []).includes(b.kind))
@@ -645,7 +665,8 @@ function openMovePick(e, b, ended = [], pressed = new Date()) {
     ...parts)
   box.hidden = false
 }
-function closeMovePick() { clearTimeout(movePickTimer); const box = $('#movepick'); box.hidden = true; box.replaceChildren() }
+// 押した直後の欄を閉じたら(「閉じる」・20秒・ほかの画面へ)、押し終わったものとしてボタンを引っ込める
+function closeMovePick() { clearTimeout(movePickTimer); const box = $('#movepick'); const was = !box.hidden; box.hidden = true; box.replaceChildren(); if (was) setDockDown(true) }
 
 function showToast(text, actions = []) {
   const t = $('#toast')
@@ -1782,6 +1803,7 @@ async function main() {
   await PJ.load()
   await loadLists()
   buildButtons()
+  initDock()
   $('#write').addEventListener('click', () => { closeMovePick(); openEditor(null) })
   $('#record').addEventListener('click', () => { closeMovePick(); openEditor(null, { kind: 'memo', record: true }) })
   $('#btnset').addEventListener('click', () => { closeMovePick(); openButtonSettings() })

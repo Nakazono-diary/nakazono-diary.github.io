@@ -61,7 +61,10 @@
   <footer class="dock">
     <div id="ongoing" class="ongoing" hidden aria-label="続いているもの"></div>
     <div id="movepick" class="movepick" hidden></div>
-    <div id="tabs" class="tabs" role="tablist" aria-label="ボタンの種類"></div>
+    <div class="tabrow">
+      <div id="tabs" class="tabs" role="tablist" aria-label="ボタンの種類"></div>
+      <button type="button" id="dock-toggle" class="dock-toggle" aria-label="ボタンをしまう" aria-expanded="true">▾</button>
+    </div>
     <div id="buttons" class="buttons" role="group" aria-label="いま記録する"></div>
     <div class="write-row">
       <button type="button" id="write" class="write-btn"><span aria-hidden="true">✏️</span> 書く(文章・写真)</button>
