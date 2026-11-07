@@ -1808,7 +1808,7 @@ async function main() {
   askPersist().then(ok => { $('#persist').textContent = ok ? '・ 消されない設定' : '' })
   setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `続いています ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }); document.querySelectorAll('.live-legs').forEach(el => { if (el._entry) el.textContent = legsText(el._entry) }) } }, 60 * 1000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render() })
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.Capacitor) {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* なくても動く */ })
   }
 }
