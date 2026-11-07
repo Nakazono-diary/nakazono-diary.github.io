@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.18.4'
+const VERSION = '0.18.5'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -114,6 +114,8 @@ async function loadButtons() {
 // v0.18.1: ボタンの候補(本人「設定に追加しておいて」「他にも候補があれば」)。最初の画面には出さず、ボタン設定の「候補から足す」で選ぶ
 // place: false = 押しても場所を測らない(家でするもの)
 const CANDIDATES = [
+  { group: '🎉 定番(最初からあるもの)', items: [['dineout', '外食', '🍜'], ['cafe', 'カフェ', '🧋'], ['movie', '映画', '🎬'], ['karaoke', 'カラオケ', '🎤'], ['stroll', '散歩', '🌳'],
+    ['travel', '旅行', '🧳'], ['drinks', '飲み会', '🍻'], ['oshi', '推し活', '💖', false], ['watch', '観戦', '🏟️'], ['onsen', '温泉', '♨️']] },
   { group: '🎵 音楽・観る', items: [['jazz', 'ジャズ', '🎷'], ['rock', 'ロック', '🎸'], ['live', 'ライブ', '🎶'], ['fes', 'フェス', '🎪'], ['classic', 'クラシック', '🎻'],
     ['theater', '観劇', '🎭'], ['museum', '美術館', '🖼️'], ['zoo', '動物園', '🦁'], ['aquarium', '水族館', '🐬'], ['themepark', '遊園地', '🎢'], ['keiba', '競馬', '🏇']] },
   { group: '🧳 おでかけ・旅', items: [['drive', 'ドライブ', '🚙'], ['touring', 'ツーリング', '🏍️'], ['cycling', 'サイクリング', '🚴'], ['camp', 'キャンプ', '⛺'],
@@ -1850,13 +1852,21 @@ function openButtonSettings() {
       sec.append(h('button', { type: 'button', class: 'secondary-btn bs-cand-open', 'aria-expanded': candOpen ? 'true' : 'false', text: candOpen ? '候補を閉じる' : `＋ 候補から「${t.label}」に足す`, onclick: () => { candOpen = !candOpen; paint() } }))
       if (candOpen) {
         sec.append(h('div', { class: 'bs-cands' },
-          h('p', { class: 'hint', text: same.length >= MAX_PER_TAB ? `1つのタブに置けるのは ${MAX_PER_TAB}個までです。使わないボタンを消すか、別のタブ(「タブを変える」)へ移してください。` : `押すと、このタブの最後に足します(もうあるものは押せません。1つのタブに ${MAX_PER_TAB}個まで・いま ${same.length}個)。名前や絵は、足したあとで変えられます。` }),
+          h('p', { class: 'hint', text: same.length >= MAX_PER_TAB ? `1つのタブに置けるのは ${MAX_PER_TAB}個までです。使わないボタンを消すか、別のタブ(「タブを変える」)へ移してください。` : `押すと、このタブの最後に足します(色の付いたものは足してあるもの。もう一度押すと外します。1つのタブに ${MAX_PER_TAB}個まで・いま ${same.length}個)。名前や絵は、足したあとで変えられます。` }),
           ...CANDIDATES.map(g => h('div', { class: 'bs-cand-group' }, h('p', { class: 'bs-cand-title', text: g.group }),
             h('div', { class: 'bs-cand-chips' }, ...g.items.map(x => {
               const have = list.some(b => b.kind === x.kind)
               const full = same.length >= MAX_PER_TAB
-              return h('button', { type: 'button', class: 'chip bs-cand', disabled: have || full, 'aria-pressed': have ? 'true' : 'false', text: `${x.icon} ${x.label}`,
-                onclick: () => { if (list.filter(b => b.tab === t.key).length >= MAX_PER_TAB) return; list.push({ kind: x.kind, label: x.label, icon: x.icon, tab: t.key, span: true, askFun: true, ...(x.place ? { askPlace: true } : {}) }); paint(); showToast(`「${x.label}」を足しました(保存するまで決まりません)`) } })
+              return h('button', { type: 'button', class: 'chip bs-cand', disabled: !have && full, 'aria-pressed': have ? 'true' : 'false', text: `${x.icon} ${x.label}`,
+                onclick: () => {
+                  if (have) {   // v0.18.5: もう足してある候補は、もう一度押すと消す(本人「追加しすぎたら消すのが大変」)
+                    const at = list.findIndex(b => b.kind === x.kind), was = list[at]
+                    list = list.filter(b => b.kind !== x.kind); paint()
+                    showToast(`「${was.label}」を外しました(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { list.splice(Math.min(at, list.length), 0, was); paint() } }])
+                    return
+                  }
+                  if (list.filter(b => b.tab === t.key).length >= MAX_PER_TAB) return
+                  list.push({ kind: x.kind, label: x.label, icon: x.icon, tab: t.key, span: true, askFun: true, ...(x.place ? { askPlace: true } : {}) }); paint() } })
             }))))))
       }
       same.forEach((b, i) => {
