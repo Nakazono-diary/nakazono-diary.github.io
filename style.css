@@ -439,3 +439,49 @@ button, input, textarea { font: inherit; color: inherit; }
 .pc-out { fill: #0891b2; background: #0891b2; } .pc-meal { fill: #e11d48; background: #e11d48; } .pc-rest { fill: #a3a3a3; background: #a3a3a3; }
 .pc-other { fill: #64748b; background: #64748b; } .pc-none { fill: color-mix(in srgb, var(--line) 70%, var(--surface)); background: color-mix(in srgb, var(--line) 70%, var(--surface)); }
 @media (min-width: 700px) { .pie-wrap { flex-direction: row; justify-content: center; } .pie-legend { flex-direction: column; } }
+
+/* v0.18: 楽しかった度 */
+.tl-fun { display: flex; align-items: center; gap: 2px; margin-top: 6px; flex-wrap: wrap; }
+.tl-fun-q { font-size: 13px; font-weight: 700; color: #c2410c; margin-right: 6px; }
+.fun-face { width: 40px; height: 40px; border: 1px solid transparent; border-radius: 50%; background: transparent; font-size: 22px; filter: grayscale(1); opacity: .55; }
+.fun-face[aria-pressed="true"] { filter: none; opacity: 1; background: color-mix(in srgb, #f59e0b 18%, var(--surface)); border-color: #f59e0b; }
+@media (prefers-color-scheme: dark) { .tl-fun-q { color: #fdba74; } }
+
+/* v0.18: 1年前の今日 */
+.mem-card { position: relative; display: flex; gap: 12px; align-items: stretch; margin: 8px 0 12px; padding: 12px 40px 12px 12px; border-radius: 14px; cursor: pointer;
+  background: color-mix(in srgb, #8b5cf6 9%, var(--surface)); border: 1px solid color-mix(in srgb, #8b5cf6 35%, var(--line)); }
+.mem-photo { width: 76px; height: 76px; object-fit: cover; border-radius: 10px; flex: none; }
+.mem-body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mem-body p { margin: 0; }
+.mem-title { font-weight: 700; font-size: 15px; color: #6d28d9; }
+.mem-date { font-weight: 400; font-size: 13px; color: var(--muted); }
+.mem-icons { font-size: 18px; letter-spacing: 2px; }
+.mem-line { font-size: 13px; }
+.mem-line.memo { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-more { font-size: 12px; color: #6d28d9; font-weight: 700; }
+.mem-close { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 18px; }
+@media (prefers-color-scheme: dark) { .mem-title, .mem-more { color: #c4b5fd; } }
+
+/* v0.18: ふりかえり・続けた記録・スタンプラリー */
+.rv-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+.rv-tile { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 12px; background: var(--bg); }
+.rv-tile small { font-size: 12px; color: var(--muted); }
+.rv-tile strong { font-size: 20px; }
+.rv-best { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; margin-bottom: 8px; border-radius: 12px; text-align: left;
+  border: 1px solid #f59e0b; background: color-mix(in srgb, #f59e0b 12%, var(--surface)); color: var(--text); }
+.rv-best small { display: block; font-size: 12px; color: var(--muted); }
+.rv-face { font-size: 32px; }
+.rv-go { margin-left: auto; color: var(--muted); }
+.bd-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
+.bd-row:first-of-type { border-top: 0; }
+.bd-name { display: flex; flex-direction: column; }
+.bd-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.bd { display: flex; flex-direction: column; align-items: center; width: 52px; padding: 4px 0; border-radius: 10px; background: var(--bg); opacity: .35; filter: grayscale(1); }
+.bd.on { opacity: 1; filter: none; background: color-mix(in srgb, #f59e0b 15%, var(--surface)); }
+.bd b { font-size: 22px; } .bd small { font-size: 11px; color: var(--muted); }
+.stamp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin-top: 8px; }
+.stamp { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border-radius: 50%; aspect-ratio: 1; justify-content: center; text-align: center;
+  border: 2px dashed var(--line2); color: var(--muted); }
+.stamp.on { border: 2px solid #dc2626; color: #dc2626; transform: rotate(-6deg); background: color-mix(in srgb, #dc2626 6%, var(--surface)); }
+.stamp-mark { font-size: 22px; } .stamp-name { font-size: 12px; font-weight: 700; line-height: 1.2; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stamp small { font-size: 10px; }

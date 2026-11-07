@@ -10,11 +10,11 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.17.5'
+const VERSION = '0.18.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
-const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'errand', label: '用事' }, { key: 'go', label: '外出・移動' }, { key: 'body', label: '体調・天気' }]
+const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'play', label: '遊び' }, { key: 'errand', label: '用事' }, { key: 'go', label: '外出・移動' }, { key: 'body', label: '体調・天気' }]
 const DEFAULT_BUTTONS = [
   { kind: 'wake', label: '起床', icon: '☀️', tab: 'flow', askPlace: true },
   { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true, askPlace: true, span: true },
@@ -44,6 +44,17 @@ const DEFAULT_BUTTONS = [
   { kind: 'goout', label: '外出', icon: '🚶', tab: 'go', askPlace: true, span: true },
   { kind: 'back', label: '戻り', icon: '🔙', tab: 'go', askPlace: true },
   { kind: 'trip', label: '移動', icon: '🚃', tab: 'go', askMove: true, span: true },
+  // v0.18: 遊び(本人「普通の人はもっと余暇を楽しんでるよね。遊び要素が何もなかった」)。askFun = 記録のカードで「楽しかった度」を聞く
+  { kind: 'dineout', label: '外食', icon: '🍜', tab: 'play', askPlace: true, span: true, askFun: true },
+  { kind: 'cafe', label: 'カフェ', icon: '🧋', tab: 'play', askPlace: true, span: true, askFun: true },
+  { kind: 'movie', label: '映画', icon: '🎬', tab: 'play', askPlace: true, span: true, askFun: true },
+  { kind: 'karaoke', label: 'カラオケ', icon: '🎤', tab: 'play', askPlace: true, span: true, askFun: true },
+  { kind: 'stroll', label: '散歩', icon: '🌳', tab: 'play', askPlace: true, span: true, askFun: true },
+  { kind: 'travel', label: '旅行', icon: '🧳', tab: 'play', askPlace: true, span: true, askFun: true },
+  { kind: 'drinks', label: '飲み会', icon: '🍻', tab: 'play', askPlace: true, span: true, askFun: true },
+  { kind: 'oshi', label: '推し活', icon: '💖', tab: 'play', span: true, askFun: true },
+  { kind: 'watch', label: '観戦', icon: '🏟️', tab: 'play', askPlace: true, span: true, askFun: true },
+  { kind: 'onsen', label: '温泉', icon: '♨️', tab: 'play', askPlace: true, span: true, askFun: true },
   // form: 押したら開く入力欄(health = 体調、bowel = お通じのかたさ、weather = 天気と気温)
   { kind: 'health', label: '体調', icon: '🩺', tab: 'body', form: 'health' },
   { kind: 'bowel', label: 'お通じ', icon: '🚽', tab: 'body', form: 'bowel' },
@@ -60,7 +71,7 @@ const fmtDur = (min) => { min = Math.max(0, Math.round(min)); const h2 = Math.fl
 const durMin = (a, b) => (new Date(b) - new Date(a)) / 60000
 const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
 // ボタンに選べる絵(端末の絵文字。よそから読み込まない)
-const ICONS = ['⭐', '☀️', '🌙', '🛁', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
+const ICONS = ['🧋', '🍻', '💖', '🏟️', '♨️', '🧳', '🌳', '🎡', '🎢', '🏖️', '⛺', '🎲', '🎯', '📷', '⭐', '☀️', '🌙', '🛁', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
   '🏥', '💊', '🪦', '🙏', '⛩️', '🛒', '🏦', '🏛️', '💈', '✂️', '🎣', '⛳', '🎤', '🎬', '🎵', '🍺', '🍜', '🍰', '🐕', '🌱',
   '🧹', '🧺', '🚗', '⛽', '🔧', '💻', '📞', '✉️', '👪', '👶', '🎂', '🎁', '🏖️', '♨️', '🛏️', '🚿', '🪥', '💤', '📝', '❤️',
   '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊', '🔙', '🚃', '🚌', '🚲']
@@ -100,7 +111,8 @@ async function loadButtons() {
     }
   } catch { /* なければ最初のまま */ }
 }
-const ADDED_LATER = ['work', 'health', 'bowel', 'weather', 'goout', 'back', 'trip', 'bath']   // v0.6・v0.7・v0.11・v0.16 で増えた最初のボタン
+const PLAY_KINDS = ['dineout', 'cafe', 'movie', 'karaoke', 'stroll', 'travel', 'drinks', 'oshi', 'watch', 'onsen']
+const ADDED_LATER = ['work', 'health', 'bowel', 'weather', 'goout', 'back', 'trip', 'bath', ...PLAY_KINDS]   // v0.6・v0.7・v0.11・v0.16・v0.18 で増えた最初のボタン
 // お薬・気になることの登録(本人が足す)、潮位表
 const LISTS = {
   meds: [], symptoms: [...DEFAULT_SYMPTOMS],
@@ -119,7 +131,7 @@ async function loadLists() {
   } catch { /* なくても動く */ }
 }
 // ボタンの見た目以外に持つもの(保存・読み込みで残す)
-const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
+const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(b.askFun ? { askFun: true } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
 async function saveButtons(list) {
   BUTTONS = list
   await putSetting('buttons', { buttons: list, added: ADDED_LATER, placeAdded: true, spanAdded: true, updated_at: stamp(new Date()) })
@@ -339,10 +351,56 @@ async function render() {
   ul.replaceChildren()
   for (const e of list) ul.append(await card(e))
   renderDayBand(day, [...await entriesOfDay(yday), ...list])
+  await renderMemory(isToday)
   if (isToday) {
     const last = ul.lastElementChild
     if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest' })
   } else $('.main').scrollTop = 0
+}
+
+// ---------- 1年前の今日(v0.18。今日を見ているときだけ。なければ先月の今日) ----------
+const MEMO_HIDE = 'diary.memoryHidden'
+async function renderMemory(isToday) {
+  const box = $('#memory')
+  if (!box) return
+  box.replaceChildren()
+  let hidden = ''
+  try { hidden = localStorage.getItem(MEMO_HIDE) || '' } catch { /* */ }
+  if (!isToday || hidden === today) return
+  const md = today.slice(5)
+  let hit = null
+  for (let y = 1; y <= 10 && !hit; y++) {
+    const d = `${Number(today.slice(0, 4)) - y}-${md}`
+    const l = (await entriesOfDay(d)).filter(e => e.kind !== 'health' && e.kind !== 'bowel')
+    if (l.length) hit = { day: d, list: l, title: `${y}年前の今日` }
+  }
+  if (!hit) {
+    const t = new Date(today + 'T12:00:00'); t.setMonth(t.getMonth() - 1)
+    const d = dayOf(t)
+    if (d.slice(8) === today.slice(8)) {
+      const l = (await entriesOfDay(d)).filter(e => e.kind !== 'health' && e.kind !== 'bowel')
+      if (l.length) hit = { day: d, list: l, title: '先月の今日' }
+    }
+  }
+  if (!hit) return
+  const dt = new Date(hit.day + 'T00:00:00')
+  const photoId = hit.list.flatMap(e => photosOf(e))[0]
+  const best = hit.list.filter(e => e.fun).sort((a, b) => b.fun - a.fun)[0]
+  const memo = hit.list.find(e => (e.text || '').trim())
+  const icons = [...new Set(hit.list.map(e => e.icon || (kindInfo(e.kind) || {}).icon).filter(Boolean))].slice(0, 8).join(' ')
+  const img = photoId ? h('img', { class: 'mem-photo', alt: '' }) : null
+  if (img) photoURL(photoId).then(u => { if (u) img.src = u })
+  box.append(h('section', { class: 'mem-card', role: 'button', tabindex: '0', 'aria-label': `${hit.title}の記録を見る`, onclick: () => goDay(hit.day),
+    onkeydown: (ev) => { if (ev.key === 'Enter') goDay(hit.day) } },
+    img,
+    h('div', { class: 'mem-body' },
+      h('p', { class: 'mem-title' }, `📅 ${hit.title}`, h('span', { class: 'mem-date', text: ` ${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()}(${WEEKDAY[dt.getDay()]})` })),
+      h('p', { class: 'mem-icons', text: icons }),
+      best ? h('p', { class: 'mem-line', text: `${FUN_FACES[best.fun - 1]} ${best.label}が${FUN_WORDS[best.fun - 1]}` }) : null,
+      memo ? h('p', { class: 'mem-line memo', text: memo.text.trim().slice(0, 60) }) : null,
+      h('p', { class: 'mem-more', text: 'その日を見る ▶' })),
+    h('button', { type: 'button', class: 'mem-close', 'aria-label': '今日はもう出さない', text: '×', onclick: (ev) => {
+      ev.stopPropagation(); try { localStorage.setItem(MEMO_HIDE, today) } catch { /* */ } box.replaceChildren() } })))
 }
 
 // 1日の帯(0時〜24時。睡眠・勤務・移動・外出などが、1日のどこを占めているか)。広い画面で出す
@@ -432,6 +490,25 @@ function timeCell(e) {
   return h('span', { class: 'tl-time' }, hm(e.at), h('span', { class: 'tl-end', text: endTxt }))
 }
 
+// ---------- 楽しかった度(v0.18) ----------
+const FUN_FACES = ['😞', '😐', '🙂', '😄', '🤩']
+const FUN_WORDS = ['いまいち', 'ふつう', 'よかった', '楽しかった', '最高!']
+function askFunOf(e) { const b = BUTTONS.find(x => x.kind === e.kind) || DEFAULT_BUTTONS.find(x => x.kind === e.kind); return !!(b && b.askFun) }
+async function setFun(id, n) {
+  const cur = await getEntry(id)
+  if (!cur) return
+  const next = { ...cur, updated_at: stamp(new Date()) }
+  if (cur.fun === n) delete next.fun; else next.fun = n      // 同じ顔をもう一度押すと消す
+  await putEntry(next)
+  render()
+}
+function funRow(e) {
+  return h('div', { class: 'tl-fun', role: 'group', 'aria-label': '楽しかった度' },
+    h('span', { class: 'tl-fun-q', text: e.fun ? FUN_WORDS[e.fun - 1] : (e.end || !e.span ? '楽しかった?' : 'どうだった?') }),
+    ...FUN_FACES.map((f, i) => h('button', { type: 'button', class: 'fun-face', 'aria-pressed': e.fun === i + 1 ? 'true' : 'false', 'aria-label': FUN_WORDS[i], text: f,
+      onclick: (ev) => { ev.stopPropagation(); setFun(e.id, i + 1) } })))
+}
+
 async function card(e) {
   const k = { icon: e.icon || (kindInfo(e.kind) || {}).icon || '・' }
   const isMemo = e.kind === 'memo'
@@ -455,6 +532,8 @@ async function card(e) {
     body.append(h('p', { class: 'tl-dur' }, `${x.icon || ''} ${SPAN_NAME[x.kind] || x.label} ${x.day !== e.day ? '前日 ' : ''}${hm(x.at)}〜${hm(x.end)}(${fmtDur(durMin(x.at, x.end))})`))
     if (legsOf(x).length) body.append(h('p', { class: 'tl-moves', text: legsText(x) }))
   }
+  // v0.18: 楽しかった度(遊びのボタンなど askFun の記録と、もう付けた記録)
+  if (e.fun || askFunOf(e)) body.append(funRow(e))
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: PJ.projectText(e.project) }))
@@ -1531,9 +1610,67 @@ async function openStats() {
     const works = workDays(all, inP)
     const wGross = works.reduce((a, d) => a + d.gross, 0), wNet = works.reduce((a, d) => a + d.net, 0)
     const wRecent = works.slice(-7)
+    // ふりかえり(v0.18): 遊び・楽しかった度・よく行った場所・写真
+    const playKinds = new Set([...PLAY_KINDS, ...BUTTONS.filter(b => b.tab === 'play').map(b => b.kind)])
+    const inPer = all.filter(e => inP(e.day))
+    const plays = inPer.filter(e => playKinds.has(e.kind))
+    const playMin = (e) => (e.span && e.end ? durMin(e.at, e.end) : 0)
+    const byPlay = new Map()
+    for (const e of plays) { const r = byPlay.get(e.kind) || { icon: e.icon, label: e.label, min: 0, n: 0 }; r.min += playMin(e); r.n++; byPlay.set(e.kind, r) }
+    const playRows = [...byPlay.values()].sort((a, b) => b.n - a.n || b.min - a.min).map(r => ({ icon: r.icon, label: r.label, value: r.n, sub: r.min ? fmtDur(r.min) : '' }))
+    const funs = inPer.filter(e => e.fun)
+    const funByDay = new Map()
+    for (const e of funs) { const r = funByDay.get(e.day) || { day: e.day, max: 0, sum: 0, n: 0, best: e }; r.sum += e.fun; r.n++; if (e.fun > r.max) { r.max = e.fun; r.best = e } funByDay.set(e.day, r) }
+    const bestDay = [...funByDay.values()].sort((a, b) => b.max - a.max || b.sum - a.sum)[0]
+    const placeCnt = new Map()
+    for (const e of inPer) if (e.place && e.place.id) { const nm = (PLACES.find(x => x.id === e.place.id) || e.place).name; placeCnt.set(nm, (placeCnt.get(nm) || 0) + 1) }
+    const topPlaces = [...placeCnt.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+    const nPhotos = inPer.reduce((a, e) => a + photosOf(e).length, 0)
+    const daysRec = new Set(inPer.map(e => e.day)).size
+    // スタンプラリー(登録した場所に、いちどでも行ったか。全部の期間)
+    const firstVisit = new Map()
+    for (const e of all) if (e.place && e.place.id && (!firstVisit.has(e.place.id) || e.day < firstVisit.get(e.place.id))) firstVisit.set(e.place.id, e.day)
+    // 続けて記録した日数(今日か昨日まで続いているもの)と、いちばん長かった記録
+    const streak = (days) => {
+      const set = new Set(days)
+      let cur = 0, d = set.has(today) ? today : addDays(today, -1)
+      while (set.has(d)) { cur++; d = addDays(d, -1) }
+      const sorted = [...set].sort()
+      let best = 0, run = 0, prev = null
+      for (const x of sorted) { run = prev && addDays(prev, 1) === x ? run + 1 : 1; best = Math.max(best, run); prev = x }
+      return { cur, best }
+    }
+    const stRec = streak(all.map(e => e.day))
+    const stWake = streak(all.filter(e => e.kind === 'wake').map(e => e.day))
+    const stDiary = streak(all.filter(e => (e.text || '').trim() || photosOf(e).length).map(e => e.day))
+    const BADGES = [[3, '🥉'], [7, '🥈'], [30, '🥇'], [100, '🏆'], [365, '👑']]
+    const badgeRow = (label, st) => h('div', { class: 'bd-row' },
+      h('div', { class: 'bd-name' }, h('strong', { text: label }), h('span', { class: 'st-sub', text: `いま ${st.cur}日 ・ いちばん長い ${st.best}日` })),
+      h('div', { class: 'bd-badges' }, ...BADGES.map(([n, ic]) => h('span', { class: 'bd' + (st.best >= n ? ' on' : ''), title: `${n}日続けた` }, h('b', { text: ic }), h('small', { text: `${n}日` })))))
     body.replaceChildren(
       h('div', { class: 'st-periods', role: 'tablist' }, ...PERIODS.map(p => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': p.key === period ? 'true' : 'false', text: p.label,
         onclick: () => { period = p.key; try { localStorage.setItem(STATS_KEY, period) } catch { /* */ } paint() } }))),
+      h('section', { class: 'st-card' }, h('h3', { text: '🎉 ふりかえり' }),
+        h('div', { class: 'rv-grid' },
+          h('div', { class: 'rv-tile' }, h('small', { text: '記録した日' }), h('strong', { text: `${daysRec}日` })),
+          h('div', { class: 'rv-tile' }, h('small', { text: '遊んだ回数' }), h('strong', { text: `${plays.length}回` })),
+          h('div', { class: 'rv-tile' }, h('small', { text: '遊んだ時間' }), h('strong', { text: fmtDur(plays.reduce((a, e) => a + playMin(e), 0)) })),
+          h('div', { class: 'rv-tile' }, h('small', { text: '写真' }), h('strong', { text: `${nPhotos}枚` }))),
+        bestDay ? h('button', { type: 'button', class: 'rv-best', onclick: () => { close(); goDay(bestDay.day) } },
+          h('span', { class: 'rv-face', text: FUN_FACES[bestDay.max - 1] }),
+          h('span', {}, h('small', { text: 'いちばん楽しかった日' }), h('strong', { text: `${Number(bestDay.day.slice(5, 7))}/${Number(bestDay.day.slice(8, 10))} ${bestDay.best.icon || ''} ${bestDay.best.label}` })),
+          h('span', { class: 'rv-go', text: '▶' })) : null,
+        funs.length ? h('p', { class: 'st-line', text: `楽しかった度の平均 ${FUN_FACES[Math.round(funs.reduce((a, e) => a + e.fun, 0) / funs.length) - 1]} ${(funs.reduce((a, e) => a + e.fun, 0) / funs.length).toFixed(1)}(${funs.length}件)` }) : null,
+        playRows.length ? h('div', {}, h('p', { class: 'st-sub2', text: '遊び(回数)' }), bars(playRows, 'n')) : h('p', { class: 'muted', text: '「遊び」のタブのボタンを押すと、ここに集まります。終わったら、記録のカードで楽しかった度も付けてみてください。' }),
+        topPlaces.length ? h('p', { class: 'st-line', text: `よく行った場所: ${topPlaces.map(([n, c]) => `${n}(${c}回)`).join('、')}` }) : null),
+      h('section', { class: 'st-card' }, h('h3', { text: '🏅 続けた記録' }),
+        badgeRow('記録した日', stRec), badgeRow('起床を押した日', stWake), badgeRow('文章か写真を残した日', stDiary)),
+      h('section', { class: 'st-card' }, h('h3', { text: '🗺️ スタンプラリー' }),
+        PLACES.length ? h('div', {},
+          h('p', { class: 'st-line', text: `登録した場所 ${PLACES.length}か所のうち ${PLACES.filter(x => firstVisit.has(x.id)).length}か所に行きました` }),
+          h('div', { class: 'stamp-grid' }, ...PLACES.map(x => { const d = firstVisit.get(x.id); return h('div', { class: 'stamp' + (d ? ' on' : '') },
+            h('span', { class: 'stamp-mark', text: d ? '📍' : '・' }), h('span', { class: 'stamp-name', text: x.name }), h('small', { text: d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}〜` : 'まだ' })) })))
+          : h('p', { class: 'muted', text: '右上の「場所」で行きたい場所・よく行く場所を登録すると、行くたびにスタンプがたまります。' })),
       h('section', { class: 'st-card' }, h('h3', { text: '🕐 1日の円グラフ' }),
         h('div', { class: 'st-periods pie-modes', role: 'tablist' }, ...[['day', 'この日'], ['avg', '期間の平均']].map(([k, l]) => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': k === pieMode ? 'true' : 'false', text: l,
           onclick: () => { pieMode = k; paint() } }))),
@@ -1667,6 +1804,9 @@ function openButtonSettings() {
         const askP = h('input', { type: 'checkbox' })
         askP.checked = !!b.askProject
         askP.addEventListener('change', () => { b.askProject = askP.checked })
+        const askF = h('input', { type: 'checkbox' })
+        askF.checked = !!b.askFun
+        askF.addEventListener('change', () => { b.askFun = askF.checked })
         const ask = h('input', { type: 'checkbox' })
         ask.checked = !!b.askMove
         ask.addEventListener('change', () => { b.askMove = ask.checked })
@@ -1682,7 +1822,7 @@ function openButtonSettings() {
             h('button', { type: 'button', class: 'bs-op del', 'aria-label': `${b.label}を消す`, text: '消す', onclick: () => {
               if (!confirm(`「${b.label || '新しいボタン'}」を消しますか?(記録した分は残ります)`)) return
               list = list.filter(x => x !== b); paint() } })),
-          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'),
+          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'), h('label', { class: 'bs-ask' }, askF, '楽しかった度を付ける'),
             PJ.ENABLED ? h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く') : null, tabSel))
         sec.append(row)
         if (pickFor === b.kind) {
