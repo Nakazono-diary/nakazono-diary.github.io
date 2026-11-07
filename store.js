@@ -9,7 +9,9 @@
 // entries にはほかに moves・project・health・bowel・weather・audios: [audioId] が付くことがある
 
 // v0.18.2: お試しモード(裏メニュー。URL に ?try を付けて開く)は、本番とは別の置き場 diary-try を使う
-export const TRY_MODE = typeof location !== 'undefined' && /[?&]try(=|&|$)/.test(location.search)
+import { DEBUG_MENU } from './edition.js'
+// 公開版(DEBUG_MENU = false)では ?try を付けても本番の置き場のまま
+export const TRY_MODE = DEBUG_MENU && typeof location !== 'undefined' && /[?&]try(=|&|$)/.test(location.search)
 const DB_NAME = TRY_MODE ? 'diary-try' : 'diary'
 const DB_VER = 4
 let dbp = null

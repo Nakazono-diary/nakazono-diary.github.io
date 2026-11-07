@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.18.6'
+const VERSION = '0.18.7'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1991,6 +1991,7 @@ function openButtonSettings() {
 // 入り方: 足もとの版の数字(v0.18.2 など)を、続けて5回押す → ?try を付けて開き直す。
 // お試しモードでは別の置き場(diary-try)を使い、同期はしない。上の帯から「全部消す」「本番にもどる」。
 function setupTryMode() {
+  if (!ED.DEBUG_MENU) return   // 公開版には裏メニューを付けない
   const ver = $('#version')
   let taps = 0, timer = null
   ver.addEventListener('click', () => {

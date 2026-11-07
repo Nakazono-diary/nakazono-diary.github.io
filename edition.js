@@ -5,6 +5,8 @@ export const PUBLIC = false
 export const CLIENT_ID = '1015317495163-vjr878t25upmdej6v5jgpbr46daaqghl.apps.googleusercontent.com'
 // 同期の準備の案内のページ(空なら出さない)
 export const SETUP_GUIDE = ''
+// 裏メニュー(お試しモード。デバッグ用)を使えるか。公開版では使わない(v0.18.7)
+export const DEBUG_MENU = true
 export const TEXT = {
   placeExample: '例: 自宅、大和設計、〇〇病院',
   voiceHint: '声はこのスマホの中だけにしまいます。文字にするのは、ミニPCに移ってから(Whisper)。いまはキーボードのマイクで文章に入れられます。',
