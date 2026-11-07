@@ -441,9 +441,9 @@ button, input, textarea { font: inherit; color: inherit; }
 @media (min-width: 700px) { .pie-wrap { flex-direction: row; justify-content: center; } .pie-legend { flex-direction: column; } }
 
 /* v0.18: 楽しかった度 */
-.tl-fun { display: flex; align-items: center; gap: 2px; margin-top: 6px; flex-wrap: wrap; }
-.tl-fun-q { font-size: 13px; font-weight: 700; color: #c2410c; margin-right: 6px; }
-.fun-face { width: 40px; height: 40px; border: 1px solid transparent; border-radius: 50%; background: transparent; font-size: 22px; filter: grayscale(1); opacity: .55; }
+.tl-fun { display: flex; align-items: center; gap: 0; margin-top: 6px; flex-wrap: wrap; }
+.tl-fun-q { font-size: 12px; font-weight: 700; color: #c2410c; margin-right: 2px; min-width: 4.5em; }
+.fun-face { width: 38px; height: 38px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: transparent; font-size: 22px; filter: grayscale(1); opacity: .55; }
 .fun-face[aria-pressed="true"] { filter: none; opacity: 1; background: color-mix(in srgb, #f59e0b 18%, var(--surface)); border-color: #f59e0b; }
 @media (prefers-color-scheme: dark) { .tl-fun-q { color: #fdba74; } }
 
@@ -500,3 +500,9 @@ button, input, textarea { font: inherit; color: inherit; }
 .try-btn { height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #b45309; background: #fffbeb; color: #78350f; font-weight: 700; font-size: 12px; }
 #version { cursor: default; user-select: none; }
 @media (min-width: 900px) { .try-bar { grid-column: 1 / -1; } }
+
+/* v0.18.3: だれと */
+.tl-with { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.with-open { border: 1px dashed var(--line2); background: transparent; border-radius: 16px; padding: 4px 12px; font-size: 13px; color: var(--muted); min-height: 32px; }
+.with-chip { min-height: 34px; font-size: 13px; padding: 0 10px; }
+.with-chip[aria-pressed="true"] { background: #0e7490; border-color: #0e7490; }

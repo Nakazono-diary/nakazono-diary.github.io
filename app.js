@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.18.2'
+const VERSION = '0.18.3'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -126,7 +126,6 @@ const CANDIDATES = [
   { group: '🏠 家で', items: [['cooking', '料理', '🍳', false], ['sweets', 'お菓子作り', '🧁', false], ['instrument', '楽器', '🎹', false], ['craft', '手芸', '🧶', false],
     ['garden', 'ガーデニング', '🌱', false], ['photo', '写真', '📷'], ['manga', 'マンガ', '📚', false], ['douga', '動画', '🎞️', false], ['boardgame', 'ボードゲーム', '🎲', false],
     ['mahjong', '麻雀', '🀄'], ['shogi', '将棋・囲碁', '♟️', false], ['nap', '昼寝', '😴', false]] },
-  { group: '👫 人と', items: [['friends', '友だちと', '👫'], ['date', 'デート', '💑'], ['family', '家族と', '👨‍👩‍👧'], ['pet', 'ペットと', '🐕'], ['kids', '子どもと遊ぶ', '🧒']] },
 ].map(g => ({ group: g.group, items: g.items.map(([kind, label, icon, place]) => ({ kind, label, icon, place: place !== false })) }))
 const CAND_KINDS = CANDIDATES.flatMap(g => g.items.map(x => x.kind))
 const PLAY_KINDS = ['dineout', 'cafe', 'movie', 'karaoke', 'stroll', 'travel', 'drinks', 'oshi', 'watch', 'onsen']
@@ -414,7 +413,7 @@ async function renderMemory(isToday) {
     h('div', { class: 'mem-body' },
       h('p', { class: 'mem-title' }, `📅 ${hit.title}`, h('span', { class: 'mem-date', text: ` ${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()}(${WEEKDAY[dt.getDay()]})` })),
       h('p', { class: 'mem-icons', text: icons }),
-      best ? h('p', { class: 'mem-line', text: `${FUN_FACES[best.fun - 1]} ${best.label}が${FUN_WORDS[best.fun - 1]}` }) : null,
+      best ? h('p', { class: 'mem-line', text: `${FUN_FACES[best.fun - 1]} ${best.with && best.with.length ? `${best.with.map(k => (WITH_OPTS.find(o => o.key === k) || {}).label).filter(Boolean).join('・')}と` : ''}${best.label}が${FUN_WORDS[best.fun - 1]}` }) : null,
       memo ? h('p', { class: 'mem-line memo', text: memo.text.trim().slice(0, 60) }) : null,
       h('p', { class: 'mem-more', text: 'その日を見る ▶' })),
     h('button', { type: 'button', class: 'mem-close', 'aria-label': '今日はもう出さない', text: '×', onclick: (ev) => {
@@ -527,6 +526,35 @@ function funRow(e) {
       onclick: (ev) => { ev.stopPropagation(); setFun(e.id, i + 1) } })))
 }
 
+// ---------- だれと(v0.18.3。本人「人とだったら、友達と飲み・家族とカラオケにならない?」→ ボタンではなく、記録に付ける印) ----------
+const WITH_OPTS = [['alone', 'ひとり', '🙂'], ['friends', '友だち', '👫'], ['family', '家族', '👨‍👩‍👧'], ['partner', 'パートナー', '💑'],
+  ['coworker', '仕事仲間', '👔'], ['kids', '子ども', '🧒'], ['pet', 'ペット', '🐕']].map(([key, label, icon]) => ({ key, label, icon }))
+const withText = (w) => (w || []).map(k => WITH_OPTS.find(o => o.key === k)).filter(Boolean).map(o => `${o.icon} ${o.label}`).join('・')
+async function setWith(id, key) {
+  const cur = await getEntry(id)
+  if (!cur) return
+  const now = new Set(cur.with || [])
+  if (now.has(key)) now.delete(key)
+  else { if (key === 'alone') now.clear(); else now.delete('alone'); now.add(key) }   // 「ひとり」とほかは一緒に付けない
+  const next = { ...cur, updated_at: stamp(new Date()) }
+  if (now.size) next.with = WITH_OPTS.map(o => o.key).filter(k => now.has(k)); else delete next.with
+  WITH_OPEN.add(id)
+  await putEntry(next)
+  render()
+}
+const WITH_OPEN = new Set()   // 「だれと」を開いているカード
+function withRow(e) {
+  const open = WITH_OPEN.has(e.id)
+  if (!open) {
+    return h('div', { class: 'tl-with' }, h('button', { type: 'button', class: 'with-open', onclick: (ev) => { ev.stopPropagation(); WITH_OPEN.add(e.id); render() } },
+      e.with && e.with.length ? `${withText(e.with)} と` : '＋ だれと?'))
+  }
+  return h('div', { class: 'tl-with open', role: 'group', 'aria-label': 'だれと' },
+    ...WITH_OPTS.map(o => h('button', { type: 'button', class: 'chip with-chip', 'aria-pressed': (e.with || []).includes(o.key) ? 'true' : 'false', text: `${o.icon} ${o.label}`,
+      onclick: (ev) => { ev.stopPropagation(); setWith(e.id, o.key) } })),
+    h('button', { type: 'button', class: 'link-btn small', text: '閉じる', onclick: (ev) => { ev.stopPropagation(); WITH_OPEN.delete(e.id); render() } }))
+}
+
 async function card(e) {
   const k = { icon: e.icon || (kindInfo(e.kind) || {}).icon || '・' }
   const isMemo = e.kind === 'memo'
@@ -552,6 +580,7 @@ async function card(e) {
   }
   // v0.18: 楽しかった度(遊びのボタンなど askFun の記録と、もう付けた記録)
   if (e.fun || askFunOf(e)) body.append(funRow(e))
+  if ((e.with && e.with.length) || askFunOf(e)) body.append(withRow(e))
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: PJ.projectText(e.project) }))
@@ -1644,6 +1673,7 @@ async function openStats() {
     for (const e of inPer) if (e.place && e.place.id) { const nm = (PLACES.find(x => x.id === e.place.id) || e.place).name; placeCnt.set(nm, (placeCnt.get(nm) || 0) + 1) }
     const topPlaces = [...placeCnt.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
     const nPhotos = inPer.reduce((a, e) => a + photosOf(e).length, 0)
+    const withCnt = WITH_OPTS.map(o => ({ icon: o.icon, label: o.label, value: inPer.filter(e => (e.with || []).includes(o.key)).length, sub: '' })).filter(r => r.value).sort((a, b) => b.value - a.value)
     const daysRec = new Set(inPer.map(e => e.day)).size
     // スタンプラリー(登録した場所に、いちどでも行ったか。全部の期間)
     const firstVisit = new Map()
@@ -1680,6 +1710,7 @@ async function openStats() {
           h('span', { class: 'rv-go', text: '▶' })) : null,
         funs.length ? h('p', { class: 'st-line', text: `楽しかった度の平均 ${FUN_FACES[Math.round(funs.reduce((a, e) => a + e.fun, 0) / funs.length) - 1]} ${(funs.reduce((a, e) => a + e.fun, 0) / funs.length).toFixed(1)}(${funs.length}件)` }) : null,
         playRows.length ? h('div', {}, h('p', { class: 'st-sub2', text: '遊び(回数)' }), bars(playRows, 'n')) : h('p', { class: 'muted', text: '「遊び」のタブのボタンを押すと、ここに集まります。終わったら、記録のカードで楽しかった度も付けてみてください。' }),
+        withCnt.length ? h('div', {}, h('p', { class: 'st-sub2', text: 'だれと(回数)' }), bars(withCnt, 'n')) : null,
         topPlaces.length ? h('p', { class: 'st-line', text: `よく行った場所: ${topPlaces.map(([n, c]) => `${n}(${c}回)`).join('、')}` }) : null),
       h('section', { class: 'st-card' }, h('h3', { text: '🏅 続けた記録' }),
         badgeRow('記録した日', stRec), badgeRow('起床を押した日', stWake), badgeRow('文章か写真を残した日', stDiary)),
