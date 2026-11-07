@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.18.8'
+const VERSION = '0.18.9'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -193,6 +193,7 @@ async function addLeg(id, mode) {
     const next = [...legs.slice(0, -1), { mode, at: last.at }]
     await putEntry({ ...cur, legs: next, moves: next.map(l => l.mode), updated_at: stamp(new Date()) })
     await render()
+    syncMovePick(id, mode)
     legPickedAt.set(id, Date.now())
     showToast(`${MOVE_BY[mode].icon} ${MOVE_BY[mode].label}に直しました`)
     return
@@ -202,6 +203,7 @@ async function addLeg(id, mode) {
   await putEntry({ ...cur, legs: next, moves: next.map(l => l.mode), updated_at: stamp(new Date()) })
   legPickedAt.set(id, Date.now())
   await render()
+  syncMovePick(id, mode)
   showToast(legs.length ? `${hm(at)} ${MOVE_BY[mode].icon} ${MOVE_BY[mode].label}に乗りかえました` : `${MOVE_BY[mode].icon} ${MOVE_BY[mode].label}で移動中`)
 }
 // 移動手段を1つ選ぶ(押した直後の欄・帯)
@@ -744,6 +746,12 @@ function backdateRow(e, ended, pressed) {
 
 // ボタンを押した直後: 件名・工程や移動手段を、その場で付ける(選ぶたびに保存)
 let movePickTimer = null
+// 押した直後の欄が開いているとき、その記録の移動手段が変わったら欄の色も合わせる
+let movePickSync = null
+function syncMovePick(id, mode) {
+  const s = movePickSync
+  if (s && s.id === id && s.row.isConnected) s.paint(mode)
+}
 function openMovePick(e, b, ended = [], pressed = new Date()) {
   const box = $('#movepick')
   clearTimeout(movePickTimer)
@@ -783,10 +791,11 @@ function openMovePick(e, b, ended = [], pressed = new Date()) {
     // 前はここで押すと最初の手段が入れかわり、移動の全部がその手段になっていた(本人 2026-11-03「全部電車に変わった」)
     const row = h('div', {})
     const label = h('p', { class: 'mp-label', text: '最初の移動手段は?' })
-    const paintRow = (cur) => row.replaceChildren(modeRow(cur, async (m) => { await addLeg(e.id, m); paintRow(m) }))
+    const relabel = () => { label.textContent = '乗りかえたら、ここか上の帯で押してください(押した時刻から次の手段になります)' }
+    // 選んだ手段に色を付ける。ここで押しても、帯で押しても(v0.18.8 本人「帯で徒歩にしたのに、下の欄は選んでいないまま」)
+    const paintRow = (cur) => { row.replaceChildren(modeRow(cur, (m) => addLeg(e.id, m))); if (cur) relabel() }
     paintRow(null)
-    const relabel = () => { label.textContent = '乗りかえたら、ここか下の帯で押してください(押した時刻から次の手段になります)' }
-    row.addEventListener('click', () => setTimeout(relabel, 0))
+    movePickSync = { id: e.id, row, paint: paintRow }
     parts.push(label, row)
   } else if (b.askMove) parts.push(h('p', { class: 'mp-label', text: '移動手段は?' }), movePicker([], (keys) => update({ moves: [...keys] })))
   if (b.form === 'bowel') parts.push(h('p', { class: 'mp-label', text: 'かたさは?' }), bowelPicker(null, (bw) => update({ bowel: bw })))
