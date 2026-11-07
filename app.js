@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.17.2'
+const VERSION = '0.17.3'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1473,6 +1473,8 @@ function openButtonSettings() {
   const sheet = $('#sheet')
   let list = BUTTONS.map(b => ({ ...b }))
   let pickFor = null          // 絵を選んでいるボタンの kind
+  // v0.17.3: 本人「ボタン設定は項目別に表示を」→ 上のタブで1つずつ見せる(最初は、いま下で開いているタブ)
+  let showTab = TABS.some(t => t.key === currentTab()) ? currentTab() : TABS[0].key
   const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite' })
   const body = h('div', { class: 'sheet-body' })
   const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
@@ -1485,10 +1487,13 @@ function openButtonSettings() {
     paint()
   }
   const paint = () => {
-    body.replaceChildren(h('p', { class: 'hint', text: 'ボタンの名前・絵・並びを変えられます。消しても、そのボタンで記録した分は残ります。最後に「保存する」を押してください。' }))
-    for (const t of TABS) {
+    body.replaceChildren(h('p', { class: 'hint', text: 'ボタンの名前・絵・並びを変えられます。消しても、そのボタンで記録した分は残ります。最後に「保存する」を押してください。' }),
+      h('div', { class: 'tabs bs-tabs', role: 'tablist', 'aria-label': 'どのタブのボタンを見るか' },
+        ...TABS.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === showTab ? 'true' : 'false',
+          text: `${t.label} ${list.filter(b => b.tab === t.key).length}`, onclick: () => { showTab = t.key; pickFor = null; paint(); body.scrollTop = 0 } }))))
+    for (const t of TABS.filter(x => x.key === showTab)) {
       const same = list.filter(b => b.tab === t.key)
-      const sec = h('section', { class: 'bs-tab' }, h('h3', { text: t.label }))
+      const sec = h('section', { class: 'bs-tab' })
       same.forEach((b, i) => {
         const name = h('input', { class: 'input bs-name', value: b.label, maxlength: '12', 'aria-label': `${b.label || '新しいボタン'}の名前` })
         name.addEventListener('input', () => { b.label = name.value })
@@ -1506,7 +1511,7 @@ function openButtonSettings() {
         ask.addEventListener('change', () => { b.askMove = ask.checked })
         const tabSel = h('select', { class: 'input bs-tabsel', 'aria-label': 'タブを変える' }, ...TABS.map(x => h('option', { value: x.key, text: x.label })))
         tabSel.value = b.tab
-        tabSel.addEventListener('change', () => { b.tab = tabSel.value; paint() })
+        tabSel.addEventListener('change', () => { b.tab = tabSel.value; paint(); showToast(`「${b.label}」を「${(TABS.find(x => x.key === b.tab) || {}).label}」へ移しました`) })
         const row = h('div', { class: 'bs-row' },
           h('button', { type: 'button', class: 'bs-icon', 'aria-label': `${b.label}の絵を変える`, text: b.icon, onclick: () => { pickFor = pickFor === b.kind ? null : b.kind; paint() } }),
           name,
@@ -1529,7 +1534,7 @@ function openButtonSettings() {
         const nb = { kind: 'c-' + newId().slice(0, 8), label: '', icon: '⭐', tab: t.key }
         list.push(nb); pickFor = null; paint()
         // 足したボタンの名前の欄に、すぐ書けるようにする
-        requestAnimationFrame(() => { const el = body.querySelectorAll('.bs-tab')[TABS.indexOf(t)].querySelectorAll('.bs-name'); el[el.length - 1].focus() })
+        requestAnimationFrame(() => { const el = body.querySelector('.bs-tab').querySelectorAll('.bs-name'); el[el.length - 1].focus() })
       } }))
       body.append(sec)
     }
