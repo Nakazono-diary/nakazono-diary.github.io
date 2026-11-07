@@ -8,9 +8,17 @@
 // settings: { key, value }   (key 'buttons' = ボタン、'projects' = 件名リスト、'meds' = お薬、'symptoms' = 症状、'tide' = 潮位表)
 // entries にはほかに moves・project・health・bowel・weather・audios: [audioId] が付くことがある
 
-const DB_NAME = 'diary'
+// v0.18.2: お試しモード(裏メニュー。URL に ?try を付けて開く)は、本番とは別の置き場 diary-try を使う
+export const TRY_MODE = typeof location !== 'undefined' && /[?&]try(=|&|$)/.test(location.search)
+const DB_NAME = TRY_MODE ? 'diary-try' : 'diary'
 const DB_VER = 4
 let dbp = null
+// お試しの置き場を空にする(本番の diary には触らない)
+export async function wipeTry() {
+  if (!TRY_MODE) throw new Error('お試しモードではありません')
+  if (dbp) { (await dbp).close(); dbp = null }
+  await new Promise((resolve, reject) => { const r = indexedDB.deleteDatabase('diary-try'); r.onsuccess = resolve; r.onerror = () => reject(r.error); r.onblocked = resolve })
+}
 
 function open() {
   if (dbp) return dbp

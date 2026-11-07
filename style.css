@@ -493,3 +493,10 @@ button, input, textarea { font: inherit; color: inherit; }
 .bs-cand-title { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
 .bs-cand-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .bs-cand:disabled { opacity: .45; }
+
+/* v0.18.2: お試しモード */
+.try-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: -10px -16px 8px; border-radius: 0; background: repeating-linear-gradient(45deg, #fde68a, #fde68a 10px, #fcd34d 10px, #fcd34d 20px); color: #78350f; font-size: 13px; }
+.try-sub { font-size: 12px; }
+.try-btn { height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #b45309; background: #fffbeb; color: #78350f; font-weight: 700; font-size: 12px; }
+#version { cursor: default; user-select: none; }
+@media (min-width: 900px) { .try-bar { grid-column: 1 / -1; } }

@@ -3,14 +3,14 @@
 import * as S from './sync.js'
 import * as ED from './edition.js'
 import * as PJ from './projects.js'
-import { allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
+import { TRY_MODE, wipeTry, allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 import { h } from './dom.js'
 import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLines, recorderButton, weatherForm, weatherText } from './body.js'
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.18.1'
+const VERSION = '0.18.2'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -232,7 +232,7 @@ function movePicker(selected, onChange) {
 // 記録の種類の見え方(消したボタンも、昔の記録のために最初の一覧から引けるようにする)
 const kindInfo = (kind) => (kind === 'memo' ? MEMO : BUTTONS.find(b => b.kind === kind) || DEFAULT_BUTTONS.find(b => b.kind === kind))
 const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土']
-const DRAFT_KEY = 'diary.draft'
+const DRAFT_KEY = TRY_MODE ? 'diary.try.draft' : 'diary.draft'   // お試しモードの書きかけは別に
 
 // ---------- 小道具 ----------
 const $ = (s) => document.querySelector(s)
@@ -1891,6 +1891,33 @@ function openButtonSettings() {
 }
 
 
+// ---------- お試しモード(v0.18.2。本人「デバッグ必要だから裏メニューとして」) ----------
+// 入り方: 足もとの版の数字(v0.18.2 など)を、続けて5回押す → ?try を付けて開き直す。
+// お試しモードでは別の置き場(diary-try)を使い、同期はしない。上の帯から「全部消す」「本番にもどる」。
+function setupTryMode() {
+  const ver = $('#version')
+  let taps = 0, timer = null
+  ver.addEventListener('click', () => {
+    taps++; clearTimeout(timer); timer = setTimeout(() => { taps = 0 }, 1500)
+    if (taps < 5) return
+    taps = 0
+    if (TRY_MODE) { if (confirm('本番の日記にもどりますか?')) location.href = location.pathname }
+    else if (confirm('🧪 お試しモードで開きますか?\n本番の記録とは別の箱で動きます。お試しで押したものは本番に入りません(同期もしません)。')) location.href = `${location.pathname}?try`
+  })
+  if (!TRY_MODE) return
+  document.title = `🧪 お試し ${document.title}`
+  document.body.classList.add('try-mode')
+  const bar = h('div', { class: 'try-bar', role: 'note' },
+    h('strong', { text: '🧪 お試しモード' }), h('span', { class: 'try-sub', text: '本番の記録とは別です' }),
+    h('span', { class: 'spacer' }),
+    h('button', { type: 'button', class: 'try-btn', text: '全部消す', onclick: async () => {
+      if (!confirm('お試しの記録・写真・設定を全部消しますか?(本番の記録は消えません)')) return
+      await wipeTry(); try { localStorage.removeItem('diary.try.draft') } catch { /* */ }
+      location.reload() } }),
+    h('button', { type: 'button', class: 'try-btn', text: '本番へ', onclick: () => { location.href = location.pathname } }))
+  document.querySelector('.top').prepend(bar)
+}
+
 // ---------- グーグルドライブで同期(v0.13。中身は鍵をかけてから送る。sync.js) ----------
 // Google Cloud で作った「OAuth クライアント ID」(秘密ではない。ここに入れておけば各端末で入れずに済む)
 const DEFAULT_CLIENT_ID = ED.CLIENT_ID
@@ -1942,6 +1969,7 @@ function askPass(mode, note = '') {
 
 // 同期: ドライブの中身を読み、この端末と合わせ、合わせたものをドライブに置く
 async function runSync(report = (t) => showToast(t)) {
+  if (TRY_MODE) { report('お試しモードでは同期しません(本番の記録を守るため)'); return }
   if (syncing) return
   const cfg = await syncCfg()
   if (!cfg.clientId) { report('先に、バックアップの画面で「Google のクライアント ID」を入れてください'); openBackup(); return }
@@ -2157,6 +2185,7 @@ async function main() {
     else if (ev.key === 'ArrowRight' && viewDay) goDay(addDays(shownDay(), 1))
   })
   $('#version').textContent = `v${VERSION}`
+  setupTryMode()
   $('#sync-btn').addEventListener('click', () => { closeMovePick(); runSync() })
   paintSyncFoot(await syncCfg())
   // Google のログインからもどってきたとき
