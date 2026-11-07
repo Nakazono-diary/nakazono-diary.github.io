@@ -472,13 +472,14 @@ button, input, textarea { font: inherit; color: inherit; }
 .rv-best small { display: block; font-size: 12px; color: var(--muted); }
 .rv-face { font-size: 32px; }
 .rv-go { margin-left: auto; color: var(--muted); }
-.bd-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
-.bd-row:first-of-type { border-top: 0; }
-.bd-name { display: flex; flex-direction: column; }
-.bd-badges { display: flex; gap: 6px; flex-wrap: wrap; }
-.bd { display: flex; flex-direction: column; align-items: center; width: 52px; padding: 4px 0; border-radius: 10px; background: var(--bg); opacity: .35; filter: grayscale(1); }
-.bd.on { opacity: 1; filter: none; background: color-mix(in srgb, #f59e0b 15%, var(--surface)); }
-.bd b { font-size: 22px; } .bd small { font-size: 11px; color: var(--muted); }
+/* 続けた記録のバッジ(v0.18.8 で名前を bdg に。前は .bd で、押し忘れの欄(.bd・.bd-row)の見た目を崩していた) */
+.bdg-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
+.bdg-row:first-of-type { border-top: 0; }
+.bdg-name { display: flex; flex-direction: column; }
+.bdg-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.bdg { display: flex; flex-direction: column; align-items: center; width: 52px; padding: 4px 0; border-radius: 10px; background: var(--bg); opacity: .35; filter: grayscale(1); }
+.bdg.on { opacity: 1; filter: none; background: color-mix(in srgb, #f59e0b 15%, var(--surface)); }
+.bdg b { font-size: 22px; } .bdg small { font-size: 11px; color: var(--muted); }
 .stamp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin-top: 8px; }
 .stamp { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border-radius: 50%; aspect-ratio: 1; justify-content: center; text-align: center;
   border: 2px dashed var(--line2); color: var(--muted); }
