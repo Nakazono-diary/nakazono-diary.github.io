@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.18.5'
+const VERSION = '0.18.6'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -149,10 +149,11 @@ async function loadLists() {
     const m = await getSetting('meds'); if (Array.isArray(m)) LISTS.meds = m
     const sy = await getSetting('symptoms'); if (Array.isArray(sy)) LISTS.symptoms = sy
     TIDE = await getSetting('tide')
+    const w = cleanWiths(await getSetting('withs')); if (w.length) WITH_OPTS = w
   } catch { /* なくても動く */ }
 }
 // ボタンの見た目以外に持つもの(保存・読み込みで残す)
-const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(b.askFun ? { askFun: true } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
+const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(b.askFun ? { askFun: true } : {}), ...(b.askWith != null ? { askWith: !!b.askWith } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
 async function saveButtons(list) {
   BUTTONS = list
   await putSetting('buttons', { buttons: list, added: ADDED_LATER, placeAdded: true, spanAdded: true, updated_at: stamp(new Date()) })
@@ -514,6 +515,8 @@ function timeCell(e) {
 // ---------- 楽しかった度(v0.18) ----------
 const FUN_FACES = ['😞', '😐', '🙂', '😄', '🤩']
 const FUN_WORDS = ['いまいち', 'ふつう', 'よかった', '楽しかった', '最高!']
+// だれとを聞くか: ボタンの askWith(付けていなければ楽しかった度と同じ)
+function askWithOf(e) { const b = BUTTONS.find(x => x.kind === e.kind) || DEFAULT_BUTTONS.find(x => x.kind === e.kind); return !!(b && (b.askWith != null ? b.askWith : b.askFun)) }
 function askFunOf(e) { const b = BUTTONS.find(x => x.kind === e.kind) || DEFAULT_BUTTONS.find(x => x.kind === e.kind); return !!(b && b.askFun) }
 async function setFun(id, n) {
   const cur = await getEntry(id)
@@ -531,8 +534,13 @@ function funRow(e) {
 }
 
 // ---------- だれと(v0.18.3。本人「人とだったら、友達と飲み・家族とカラオケにならない?」→ ボタンではなく、記録に付ける印) ----------
-const WITH_OPTS = [['alone', 'ひとり', '🙂'], ['friends', '友だち', '👫'], ['family', '家族', '👨‍👩‍👧'], ['partner', 'パートナー', '💑'],
+const DEFAULT_WITH = [['alone', 'ひとり', '🙂'], ['friends', '友だち', '👫'], ['family', '家族', '👨‍👩‍👧'], ['partner', 'パートナー', '💑'],
   ['coworker', '仕事仲間', '👔'], ['kids', '子ども', '🧒'], ['pet', 'ペット', '🐕']].map(([key, label, icon]) => ({ key, label, icon }))
+// v0.18.6: 本人「誰と設定ができなくなったのは残念」→ だれとの一覧は自分で足す・名前を変える・並べ替える・消すができる(settings の withs)
+let WITH_OPTS = DEFAULT_WITH.map(o => ({ ...o }))
+const WITH_ICONS = ['🙂', '👫', '👨‍👩‍👧', '💑', '👔', '🧒', '🐕', '🐈', '👩', '👨', '👵', '👴', '👶', '🧑‍🤝‍🧑', '💼', '🎓', '🏫', '⚽', '🎸', '⭐']
+async function saveWiths(list) { WITH_OPTS = list; await putSetting('withs', list) }
+const cleanWiths = (a) => (Array.isArray(a) ? a : []).filter(o => o && typeof o.key === 'string' && typeof o.label === 'string' && o.label.trim()).map(o => ({ key: o.key.slice(0, 40), label: o.label.trim().slice(0, 12), icon: typeof o.icon === 'string' ? o.icon.slice(0, 16) : '🙂' }))
 const withText = (w) => (w || []).map(k => WITH_OPTS.find(o => o.key === k)).filter(Boolean).map(o => `${o.icon} ${o.label}`).join('・')
 async function setWith(id, key) {
   const cur = await getEntry(id)
@@ -584,7 +592,7 @@ async function card(e) {
   }
   // v0.18: 楽しかった度(遊びのボタンなど askFun の記録と、もう付けた記録)
   if (e.fun || askFunOf(e)) body.append(funRow(e))
-  if ((e.with && e.with.length) || askFunOf(e)) body.append(withRow(e))
+  if ((e.with && e.with.length) || askWithOf(e)) body.append(withRow(e))
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: PJ.projectText(e.project) }))
@@ -1234,7 +1242,7 @@ async function exportFile(btn) {
       if (a) audios[aid] = { mime: a.mime, sec: a.sec, created_at: a.created_at, data: await blobToDataURL(a.blob) }
     }
     const data = { app: 'diary', format: 3, version: VERSION, exported_at: stamp(new Date()), entries, photos, audios, buttons: BUTTONS,
-      lists: { meds: LISTS.meds, symptoms: LISTS.symptoms }, places: PLACES }
+      lists: { meds: LISTS.meds, symptoms: LISTS.symptoms, withs: WITH_OPTS }, places: PLACES }
     const name = `diary-${dayOf(new Date())}.json`
     const text = JSON.stringify(data, null, 1)
     if (isNativeApp()) await shareFileNative(name, text)
@@ -1310,6 +1318,7 @@ async function planImport(file) {
     const add = (Array.isArray(L[key]) ? L[key] : []).filter(x => typeof x === 'string' && x.trim() && !LISTS[key].includes(x))
     if (add.length) plan.lists[key] = add
   }
+  plan.withs = cleanWiths(L.withs).filter(o => !WITH_OPTS.some(x => x.key === o.key))   // だれとは、ないもの(同じ key がないもの)だけ足す
   // 登録した場所は、ないもの(同じ id がないもの)だけ足す
   plan.places = (Array.isArray(data.places) ? data.places : []).filter(p => p && typeof p.id === 'string' && typeof p.name === 'string' && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !PLACES.some(x => x.id === p.id))
     .map(p => ({ id: p.id, name: p.name.slice(0, 30), addr: typeof p.addr === 'string' ? p.addr.slice(0, 100) : '', lat: p.lat, lon: p.lon, r: Number.isFinite(p.r) ? p.r : 150, created_at: p.created_at || '' }))
@@ -1344,6 +1353,7 @@ async function applyImport(plan) {
     await putEntry({ ...e, photos: keep, audios: keepA })
   }
   for (const [key, add] of Object.entries(plan.lists || {})) await LISTS.save(key, [...LISTS[key], ...add])
+  if (plan.withs && plan.withs.length) await saveWiths([...WITH_OPTS, ...plan.withs])
   if (plan.places && plan.places.length) await savePlaces([...PLACES, ...plan.places])
   return photos
 }
@@ -1827,6 +1837,8 @@ function openButtonSettings() {
   // v0.17.3: 本人「ボタン設定は項目別に表示を」→ 上のタブで1つずつ見せる(最初は、いま下で開いているタブ)
   let showTab = TABS.some(t => t.key === currentTab()) ? currentTab() : TABS[0].key
   let candOpen = false        // 候補の一覧を開いているか(v0.18.1)
+  let withs = WITH_OPTS.map(o => ({ ...o }))   // だれとの一覧(保存するまで決まらない。v0.18.6)
+  let withPick = null
   // (same は下の for の中で決まる)
   const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite' })
   const body = h('div', { class: 'sheet-body' })
@@ -1845,7 +1857,10 @@ function openButtonSettings() {
     body.replaceChildren(h('p', { class: 'hint', text: 'ボタンの名前・絵・並びを変えられます。消しても、そのボタンで記録した分は残ります。最後に「保存する」を押してください。' }),
       h('div', { class: 'tabs bs-tabs', role: 'tablist', 'aria-label': 'どのタブのボタンを見るか' },
         ...TABS.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === showTab ? 'true' : 'false',
-          text: `${t.label} ${list.filter(b => b.tab === t.key).length}`, onclick: () => { showTab = t.key; pickFor = null; paint(); body.scrollTop = 0 } }))))
+          text: `${t.label} ${list.filter(b => b.tab === t.key).length}`, onclick: () => { showTab = t.key; pickFor = null; paint(); body.scrollTop = 0 } })),
+        h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': showTab === '__with' ? 'true' : 'false', text: `👫 だれと ${withs.length}`,
+          onclick: () => { showTab = '__with'; pickFor = null; paint(); body.scrollTop = 0 } })))
+    if (showTab === '__with') { body.append(withEditor()); body.append(msg); return }
     for (const t of TABS.filter(x => x.key === showTab)) {
       const same = list.filter(b => b.tab === t.key)
       const sec = h('section', { class: 'bs-tab' })
@@ -1881,6 +1896,9 @@ function openButtonSettings() {
         const askP = h('input', { type: 'checkbox' })
         askP.checked = !!b.askProject
         askP.addEventListener('change', () => { b.askProject = askP.checked })
+        const askW = h('input', { type: 'checkbox' })
+        askW.checked = b.askWith != null ? !!b.askWith : !!b.askFun
+        askW.addEventListener('change', () => { b.askWith = askW.checked })
         const askF = h('input', { type: 'checkbox' })
         askF.checked = !!b.askFun
         askF.addEventListener('change', () => { b.askFun = askF.checked })
@@ -1901,7 +1919,7 @@ function openButtonSettings() {
               const at = list.indexOf(b)
               list = list.filter(x => x !== b); paint()
               showToast(`「${b.label || '新しいボタン'}」を消しました(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { list.splice(Math.min(at, list.length), 0, b); paint() } }]) } })),
-          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'), h('label', { class: 'bs-ask' }, askF, '楽しかった度を付ける'),
+          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'), h('label', { class: 'bs-ask' }, askF, '楽しかった度を付ける'), h('label', { class: 'bs-ask' }, askW, 'だれとを付ける'),
             PJ.ENABLED ? h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く') : null, tabSel))
         sec.append(row)
         if (pickFor === b.kind) {
@@ -1922,7 +1940,36 @@ function openButtonSettings() {
       if (!confirm('ボタンを最初の並びに戻しますか?(自分で足したボタンは消えます。記録は残ります)')) return
       list = DEFAULT_BUTTONS.map(b => ({ ...b })); paint() } }), msg)
   }
+  // だれとの一覧の編集(v0.18.6)
+  const withEditor = () => {
+    const moveW = (o, d) => { const i = withs.indexOf(o), j = i + d; if (j < 0 || j >= withs.length) return; [withs[i], withs[j]] = [withs[j], withs[i]]; paint() }
+    const sec = h('section', { class: 'bs-tab' }, h('p', { class: 'hint', text: '遊びなどの記録に付ける「だれと」の一覧です。名前の人を足してもかまいません(この端末と、鍵をかけた同期の中だけ)。消しても、付けた記録はそのまま残ります。' }))
+    withs.forEach((o, i) => {
+      const name = h('input', { class: 'input bs-name', value: o.label, maxlength: '12', 'aria-label': `${o.label || '新しい人'}の名前` })
+      name.addEventListener('input', () => { o.label = name.value })
+      sec.append(h('div', { class: 'bs-row' },
+        h('button', { type: 'button', class: 'bs-icon', 'aria-label': `${o.label}の絵を変える`, text: o.icon, onclick: () => { withPick = withPick === o.key ? null : o.key; paint() } }),
+        name,
+        h('div', { class: 'bs-ops' },
+          h('button', { type: 'button', class: 'bs-op', 'aria-label': '上へ', text: '↑', disabled: i === 0, onclick: () => moveW(o, -1) }),
+          h('button', { type: 'button', class: 'bs-op', 'aria-label': '下へ', text: '↓', disabled: i === withs.length - 1, onclick: () => moveW(o, 1) }),
+          h('button', { type: 'button', class: 'bs-op del', 'aria-label': `${o.label}を消す`, text: '消す', onclick: () => {
+            const at = withs.indexOf(o); withs = withs.filter(x => x !== o); paint()
+            showToast(`「${o.label}」を消しました(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { withs.splice(Math.min(at, withs.length), 0, o); paint() } }]) } }))))
+      if (withPick === o.key) sec.append(h('div', { class: 'icon-grid', role: 'group', 'aria-label': '絵を選ぶ' },
+        ...WITH_ICONS.map(ic => h('button', { type: 'button', class: 'icon-pick', 'aria-pressed': ic === o.icon ? 'true' : 'false', text: ic, onclick: () => { o.icon = ic; withPick = null; paint() } }))))
+    })
+    sec.append(h('button', { type: 'button', class: 'secondary-btn bs-add', disabled: withs.length >= MAX_PER_TAB, text: withs.length >= MAX_PER_TAB ? `${MAX_PER_TAB}人まで` : '＋ だれとを足す', onclick: () => {
+      withs.push({ key: 'w-' + newId().slice(0, 8), label: '', icon: '🙂' }); paint()
+      requestAnimationFrame(() => { const el = body.querySelectorAll('.bs-name'); if (el.length) el[el.length - 1].focus() }) } }))
+    if (withs.some((o, i) => DEFAULT_WITH.some(d => d.key === o.key) === false) || withs.length !== DEFAULT_WITH.length)
+      sec.append(h('button', { type: 'button', class: 'link-btn bs-reset', text: '最初の一覧に戻す', onclick: () => { withs = DEFAULT_WITH.map(o => ({ ...o })); paint() } }))
+    return sec
+  }
   const save = async () => {
+    withs.forEach(o => { o.label = (o.label || '').trim() })
+    if (withs.some(o => !o.label)) { showTab = '__with'; paint(); msg.textContent = '名前が空の「だれと」があります'; return }
+    await saveWiths(withs.map(o => ({ key: o.key, label: o.label, icon: o.icon })))
     list.forEach(b => { b.label = (b.label || '').trim() })
     if (list.some(b => !b.label)) { msg.textContent = '名前が空のボタンがあります'; return }
     await saveButtons(list.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })))
@@ -2113,6 +2160,7 @@ async function runSync(report = (t) => showToast(t)) {
       const add = ((rs.lists || {})[key] || []).filter(x => typeof x === 'string' && !LISTS[key].includes(x))
       if (add.length) await LISTS.save(key, [...LISTS[key], ...add])
     }
+    { const add = cleanWiths((rs.lists || {}).withs).filter(o => !WITH_OPTS.some(x => x.key === o.key)); if (add.length) await saveWiths([...WITH_OPTS, ...add]) }
     // 件名リスト(この版で使うときだけ。projects.js)
     const { got: gotK, note: pjNote } = await PJ.syncPull(rs, byName, (id) => S.download(token, id), (buf) => S.open(k.key, buf))
     if (rs.tide && !TIDE) { TIDE = rs.tide; await putSetting('tide', TIDE) }
@@ -2147,7 +2195,7 @@ async function runSync(report = (t) => showToast(t)) {
     const sentD = Object.keys(tombs).filter(id => !((remote && remote.tombs) || {})[id] && remoteBy.has(id)).length
     // 4. 本体(記録と設定)を、鍵をかけて置く
     const body = { app: 'diary-sync', format: 1, version: VERSION, saved_at: stamp(new Date()), entries: now, tombs, photoMeta, audioMeta,
-      settings: { buttons: await getSetting('buttons'), places: PLACES, lists: { meds: LISTS.meds, symptoms: LISTS.symptoms }, projects: PJ.data(), tide: TIDE } }
+      settings: { buttons: await getSetting('buttons'), places: PLACES, lists: { meds: LISTS.meds, symptoms: LISTS.symptoms, withs: WITH_OPTS }, projects: PJ.data(), tide: TIDE } }
     await S.upload(token, S.MAIN, await S.seal(k.key, salt, new TextEncoder().encode(JSON.stringify(body))), mainF && mainF.id)
 
     const next = { ...cfg, lastSync: stamp(new Date()) }
