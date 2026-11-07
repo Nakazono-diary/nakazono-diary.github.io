@@ -506,3 +506,8 @@ button, input, textarea { font: inherit; color: inherit; }
 .with-open { border: 1px dashed var(--line2); background: transparent; border-radius: 16px; padding: 4px 12px; font-size: 13px; color: var(--muted); min-height: 32px; }
 .with-chip { min-height: 34px; font-size: 13px; padding: 0 10px; }
 .with-chip[aria-pressed="true"] { background: #0e7490; border-color: #0e7490; }
+
+/* v0.18.4: ボタンが多いタブでも、記録が押しつぶされないように(3段と少し見せて、中ですべらせる) */
+@media (max-width: 899px) {
+  #buttons { max-height: 252px; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 2px; }
+}

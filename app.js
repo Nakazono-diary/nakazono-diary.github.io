@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.18.3'
+const VERSION = '0.18.4'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -128,6 +128,8 @@ const CANDIDATES = [
     ['mahjong', '麻雀', '🀄'], ['shogi', '将棋・囲碁', '♟️', false], ['nap', '昼寝', '😴', false]] },
 ].map(g => ({ group: g.group, items: g.items.map(([kind, label, icon, place]) => ({ kind, label, icon, place: place !== false })) }))
 const CAND_KINDS = CANDIDATES.flatMap(g => g.items.map(x => x.kind))
+// 1つのタブに置けるボタンの数(v0.18.4。本人「最大ボタン数決めないとね」)
+const MAX_PER_TAB = 20
 const PLAY_KINDS = ['dineout', 'cafe', 'movie', 'karaoke', 'stroll', 'travel', 'drinks', 'oshi', 'watch', 'onsen']
 const ADDED_LATER = ['work', 'health', 'bowel', 'weather', 'goout', 'back', 'trip', 'bath', ...PLAY_KINDS]   // v0.6・v0.7・v0.11・v0.16・v0.18 で増えた最初のボタン
 // お薬・気になることの登録(本人が足す)、潮位表
@@ -1823,6 +1825,7 @@ function openButtonSettings() {
   // v0.17.3: 本人「ボタン設定は項目別に表示を」→ 上のタブで1つずつ見せる(最初は、いま下で開いているタブ)
   let showTab = TABS.some(t => t.key === currentTab()) ? currentTab() : TABS[0].key
   let candOpen = false        // 候補の一覧を開いているか(v0.18.1)
+  // (same は下の for の中で決まる)
   const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite' })
   const body = h('div', { class: 'sheet-body' })
   const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
@@ -1835,6 +1838,8 @@ function openButtonSettings() {
     paint()
   }
   const paint = () => {
+    const keep = body.scrollTop          // 押したあとに画面が動かないように(v0.18.4)
+    requestAnimationFrame(() => { body.scrollTop = keep })
     body.replaceChildren(h('p', { class: 'hint', text: 'ボタンの名前・絵・並びを変えられます。消しても、そのボタンで記録した分は残ります。最後に「保存する」を押してください。' }),
       h('div', { class: 'tabs bs-tabs', role: 'tablist', 'aria-label': 'どのタブのボタンを見るか' },
         ...TABS.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === showTab ? 'true' : 'false',
@@ -1842,6 +1847,18 @@ function openButtonSettings() {
     for (const t of TABS.filter(x => x.key === showTab)) {
       const same = list.filter(b => b.tab === t.key)
       const sec = h('section', { class: 'bs-tab' })
+      sec.append(h('button', { type: 'button', class: 'secondary-btn bs-cand-open', 'aria-expanded': candOpen ? 'true' : 'false', text: candOpen ? '候補を閉じる' : `＋ 候補から「${t.label}」に足す`, onclick: () => { candOpen = !candOpen; paint() } }))
+      if (candOpen) {
+        sec.append(h('div', { class: 'bs-cands' },
+          h('p', { class: 'hint', text: same.length >= MAX_PER_TAB ? `1つのタブに置けるのは ${MAX_PER_TAB}個までです。使わないボタンを消すか、別のタブ(「タブを変える」)へ移してください。` : `押すと、このタブの最後に足します(もうあるものは押せません。1つのタブに ${MAX_PER_TAB}個まで・いま ${same.length}個)。名前や絵は、足したあとで変えられます。` }),
+          ...CANDIDATES.map(g => h('div', { class: 'bs-cand-group' }, h('p', { class: 'bs-cand-title', text: g.group }),
+            h('div', { class: 'bs-cand-chips' }, ...g.items.map(x => {
+              const have = list.some(b => b.kind === x.kind)
+              const full = same.length >= MAX_PER_TAB
+              return h('button', { type: 'button', class: 'chip bs-cand', disabled: have || full, 'aria-pressed': have ? 'true' : 'false', text: `${x.icon} ${x.label}`,
+                onclick: () => { if (list.filter(b => b.tab === t.key).length >= MAX_PER_TAB) return; list.push({ kind: x.kind, label: x.label, icon: x.icon, tab: t.key, span: true, askFun: true, ...(x.place ? { askPlace: true } : {}) }); paint(); showToast(`「${x.label}」を足しました(保存するまで決まりません)`) } })
+            }))))))
+      }
       same.forEach((b, i) => {
         const name = h('input', { class: 'input bs-name', value: b.label, maxlength: '12', 'aria-label': `${b.label || '新しいボタン'}の名前` })
         name.addEventListener('input', () => { b.label = name.value })
@@ -1862,7 +1879,7 @@ function openButtonSettings() {
         ask.addEventListener('change', () => { b.askMove = ask.checked })
         const tabSel = h('select', { class: 'input bs-tabsel', 'aria-label': 'タブを変える' }, ...TABS.map(x => h('option', { value: x.key, text: x.label })))
         tabSel.value = b.tab
-        tabSel.addEventListener('change', () => { b.tab = tabSel.value; paint(); showToast(`「${b.label}」を「${(TABS.find(x => x.key === b.tab) || {}).label}」へ移しました`) })
+        tabSel.addEventListener('change', () => { if (list.filter(x => x.tab === tabSel.value).length >= MAX_PER_TAB) { tabSel.value = b.tab; showToast(`そのタブは ${MAX_PER_TAB}個でいっぱいです`); return } b.tab = tabSel.value; paint(); showToast(`「${b.label}」を「${(TABS.find(x => x.key === b.tab) || {}).label}」へ移しました`) })
         const row = h('div', { class: 'bs-row' },
           h('button', { type: 'button', class: 'bs-icon', 'aria-label': `${b.label}の絵を変える`, text: b.icon, onclick: () => { pickFor = pickFor === b.kind ? null : b.kind; paint() } }),
           name,
@@ -1870,8 +1887,10 @@ function openButtonSettings() {
             h('button', { type: 'button', class: 'bs-op', 'aria-label': '上へ', text: '↑', disabled: i === 0, onclick: () => move(b, -1) }),
             h('button', { type: 'button', class: 'bs-op', 'aria-label': '下へ', text: '↓', disabled: i === same.length - 1, onclick: () => move(b, 1) }),
             h('button', { type: 'button', class: 'bs-op del', 'aria-label': `${b.label}を消す`, text: '消す', onclick: () => {
-              if (!confirm(`「${b.label || '新しいボタン'}」を消しますか?(記録した分は残ります)`)) return
-              list = list.filter(x => x !== b); paint() } })),
+              // v0.18.4: 確かめの窓はやめて(本人「消すときに出る画面が余分」)、すぐ消して「元に戻す」を出す。保存するまでは決まらない
+              const at = list.indexOf(b)
+              list = list.filter(x => x !== b); paint()
+              showToast(`「${b.label || '新しいボタン'}」を消しました(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { list.splice(Math.min(at, list.length), 0, b); paint() } }]) } })),
           h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'), h('label', { class: 'bs-ask' }, askF, '楽しかった度を付ける'),
             PJ.ENABLED ? h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く') : null, tabSel))
         sec.append(row)
@@ -1881,18 +1900,7 @@ function openButtonSettings() {
               onclick: () => { b.icon = ic; pickFor = null; paint() } }))))
         }
       })
-      sec.append(h('button', { type: 'button', class: 'secondary-btn bs-cand-open', 'aria-expanded': candOpen ? 'true' : 'false', text: candOpen ? '候補を閉じる' : `＋ 候補から「${t.label}」に足す`, onclick: () => { candOpen = !candOpen; paint() } }))
-      if (candOpen) {
-        sec.append(h('div', { class: 'bs-cands' },
-          h('p', { class: 'hint', text: '押すと、このタブの最後に足します(もうあるものは押せません)。名前や絵は、足したあとで変えられます。' }),
-          ...CANDIDATES.map(g => h('div', { class: 'bs-cand-group' }, h('p', { class: 'bs-cand-title', text: g.group }),
-            h('div', { class: 'bs-cand-chips' }, ...g.items.map(x => {
-              const have = list.some(b => b.kind === x.kind)
-              return h('button', { type: 'button', class: 'chip bs-cand', disabled: have, 'aria-pressed': have ? 'true' : 'false', text: `${x.icon} ${x.label}`,
-                onclick: () => { list.push({ kind: x.kind, label: x.label, icon: x.icon, tab: t.key, span: true, askFun: true, ...(x.place ? { askPlace: true } : {}) }); paint(); showToast(`「${x.label}」を足しました(保存するまで決まりません)`) } })
-            }))))))
-      }
-      sec.append(h('button', { type: 'button', class: 'secondary-btn bs-add', text: `＋ 「${t.label}」にボタンを足す`, onclick: () => {
+      sec.append(h('button', { type: 'button', class: 'secondary-btn bs-add', disabled: same.length >= MAX_PER_TAB, text: same.length >= MAX_PER_TAB ? `このタブは ${MAX_PER_TAB}個でいっぱいです` : `＋ 「${t.label}」にボタンを足す`, onclick: () => {
         const nb = { kind: 'c-' + newId().slice(0, 8), label: '', icon: '⭐', tab: t.key }
         list.push(nb); pickFor = null; paint()
         // 足したボタンの名前の欄に、すぐ書けるようにする
