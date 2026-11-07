@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.18.0'
+const VERSION = '0.18.1'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -71,7 +71,7 @@ const fmtDur = (min) => { min = Math.max(0, Math.round(min)); const h2 = Math.fl
 const durMin = (a, b) => (new Date(b) - new Date(a)) / 60000
 const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
 // ボタンに選べる絵(端末の絵文字。よそから読み込まない)
-const ICONS = ['🧋', '🍻', '💖', '🏟️', '♨️', '🧳', '🌳', '🎡', '🎢', '🏖️', '⛺', '🎲', '🎯', '📷', '⭐', '☀️', '🌙', '🛁', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
+const ICONS = ['🎷', '🎸', '🎪', '🎶', '⛷️', '🚙', '🏍️', '🚴', '⛰️', '🤿', '🏊', '🐠', '🫧', '🧋', '🍻', '💖', '🏟️', '♨️', '🧳', '🌳', '🎡', '🎢', '🏖️', '⛺', '🎲', '🎯', '📷', '⭐', '☀️', '🌙', '🛁', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
   '🏥', '💊', '🪦', '🙏', '⛩️', '🛒', '🏦', '🏛️', '💈', '✂️', '🎣', '⛳', '🎤', '🎬', '🎵', '🍺', '🍜', '🍰', '🐕', '🌱',
   '🧹', '🧺', '🚗', '⛽', '🔧', '💻', '📞', '✉️', '👪', '👶', '🎂', '🎁', '🏖️', '♨️', '🛏️', '🚿', '🪥', '💤', '📝', '❤️',
   '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊', '🔙', '🚃', '🚌', '🚲']
@@ -111,6 +111,24 @@ async function loadButtons() {
     }
   } catch { /* なければ最初のまま */ }
 }
+// v0.18.1: ボタンの候補(本人「設定に追加しておいて」「他にも候補があれば」)。最初の画面には出さず、ボタン設定の「候補から足す」で選ぶ
+// place: false = 押しても場所を測らない(家でするもの)
+const CANDIDATES = [
+  { group: '🎵 音楽・観る', items: [['jazz', 'ジャズ', '🎷'], ['rock', 'ロック', '🎸'], ['live', 'ライブ', '🎶'], ['fes', 'フェス', '🎪'], ['classic', 'クラシック', '🎻'],
+    ['theater', '観劇', '🎭'], ['museum', '美術館', '🖼️'], ['zoo', '動物園', '🦁'], ['aquarium', '水族館', '🐬'], ['themepark', '遊園地', '🎢'], ['keiba', '競馬', '🏇']] },
+  { group: '🧳 おでかけ・旅', items: [['drive', 'ドライブ', '🚙'], ['touring', 'ツーリング', '🏍️'], ['cycling', 'サイクリング', '🚴'], ['camp', 'キャンプ', '⛺'],
+    ['bbq', 'バーベキュー', '🍖'], ['picnic', 'ピクニック', '🧺'], ['tabearuki', '食べ歩き', '🍡'], ['jisha', '寺社めぐり', '⛩️'], ['hanami', '花見', '🌸'],
+    ['momiji', '紅葉狩り', '🍁'], ['hanabi', '花火', '🎆'], ['matsuri', 'お祭り', '🏮'], ['kisei', '帰省', '🏡'], ['sauna', 'サウナ', '🧖']] },
+  { group: '⛰️ 山・海・雪', items: [['hike', '登山', '⛰️'], ['fishing', '釣り', '🎣'], ['beach', '海水浴', '🏖️'], ['scuba', 'スキューバ', '🤿'], ['freedive', '素潜り', '🐠'],
+    ['dive', '潜水', '🫧'], ['surf', 'サーフィン', '🏄'], ['canoe', 'カヌー', '🛶'], ['swimming', '水泳', '🏊'], ['ski', 'スキー', '⛷️'], ['snowboard', 'スノボ', '🏂']] },
+  { group: '⚽ スポーツ', items: [['golf', 'ゴルフ', '⛳'], ['running', 'ランニング', '🏃'], ['tennis', 'テニス', '🎾'], ['baseball', '野球', '⚾'], ['soccer', 'サッカー', '⚽'],
+    ['basket', 'バスケ', '🏀'], ['pingpong', '卓球', '🏓'], ['badminton', 'バドミントン', '🏸'], ['bowling', 'ボウリング', '🎳'], ['yoga', 'ヨガ', '🧘'], ['dance', 'ダンス', '💃']] },
+  { group: '🏠 家で', items: [['cooking', '料理', '🍳', false], ['sweets', 'お菓子作り', '🧁', false], ['instrument', '楽器', '🎹', false], ['craft', '手芸', '🧶', false],
+    ['garden', 'ガーデニング', '🌱', false], ['photo', '写真', '📷'], ['manga', 'マンガ', '📚', false], ['douga', '動画', '🎞️', false], ['boardgame', 'ボードゲーム', '🎲', false],
+    ['mahjong', '麻雀', '🀄'], ['shogi', '将棋・囲碁', '♟️', false], ['nap', '昼寝', '😴', false]] },
+  { group: '👫 人と', items: [['friends', '友だちと', '👫'], ['date', 'デート', '💑'], ['family', '家族と', '👨‍👩‍👧'], ['pet', 'ペットと', '🐕'], ['kids', '子どもと遊ぶ', '🧒']] },
+].map(g => ({ group: g.group, items: g.items.map(([kind, label, icon, place]) => ({ kind, label, icon, place: place !== false })) }))
+const CAND_KINDS = CANDIDATES.flatMap(g => g.items.map(x => x.kind))
 const PLAY_KINDS = ['dineout', 'cafe', 'movie', 'karaoke', 'stroll', 'travel', 'drinks', 'oshi', 'watch', 'onsen']
 const ADDED_LATER = ['work', 'health', 'bowel', 'weather', 'goout', 'back', 'trip', 'bath', ...PLAY_KINDS]   // v0.6・v0.7・v0.11・v0.16・v0.18 で増えた最初のボタン
 // お薬・気になることの登録(本人が足す)、潮位表
@@ -1611,7 +1629,7 @@ async function openStats() {
     const wGross = works.reduce((a, d) => a + d.gross, 0), wNet = works.reduce((a, d) => a + d.net, 0)
     const wRecent = works.slice(-7)
     // ふりかえり(v0.18): 遊び・楽しかった度・よく行った場所・写真
-    const playKinds = new Set([...PLAY_KINDS, ...BUTTONS.filter(b => b.tab === 'play').map(b => b.kind)])
+    const playKinds = new Set([...PLAY_KINDS, ...CAND_KINDS, ...BUTTONS.filter(b => b.tab === 'play').map(b => b.kind)])
     const inPer = all.filter(e => inP(e.day))
     const plays = inPer.filter(e => playKinds.has(e.kind))
     const playMin = (e) => (e.span && e.end ? durMin(e.at, e.end) : 0)
@@ -1773,6 +1791,7 @@ function openButtonSettings() {
   let pickFor = null          // 絵を選んでいるボタンの kind
   // v0.17.3: 本人「ボタン設定は項目別に表示を」→ 上のタブで1つずつ見せる(最初は、いま下で開いているタブ)
   let showTab = TABS.some(t => t.key === currentTab()) ? currentTab() : TABS[0].key
+  let candOpen = false        // 候補の一覧を開いているか(v0.18.1)
   const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite' })
   const body = h('div', { class: 'sheet-body' })
   const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
@@ -1831,6 +1850,17 @@ function openButtonSettings() {
               onclick: () => { b.icon = ic; pickFor = null; paint() } }))))
         }
       })
+      sec.append(h('button', { type: 'button', class: 'secondary-btn bs-cand-open', 'aria-expanded': candOpen ? 'true' : 'false', text: candOpen ? '候補を閉じる' : `＋ 候補から「${t.label}」に足す`, onclick: () => { candOpen = !candOpen; paint() } }))
+      if (candOpen) {
+        sec.append(h('div', { class: 'bs-cands' },
+          h('p', { class: 'hint', text: '押すと、このタブの最後に足します(もうあるものは押せません)。名前や絵は、足したあとで変えられます。' }),
+          ...CANDIDATES.map(g => h('div', { class: 'bs-cand-group' }, h('p', { class: 'bs-cand-title', text: g.group }),
+            h('div', { class: 'bs-cand-chips' }, ...g.items.map(x => {
+              const have = list.some(b => b.kind === x.kind)
+              return h('button', { type: 'button', class: 'chip bs-cand', disabled: have, 'aria-pressed': have ? 'true' : 'false', text: `${x.icon} ${x.label}`,
+                onclick: () => { list.push({ kind: x.kind, label: x.label, icon: x.icon, tab: t.key, span: true, askFun: true, ...(x.place ? { askPlace: true } : {}) }); paint(); showToast(`「${x.label}」を足しました(保存するまで決まりません)`) } })
+            }))))))
+      }
       sec.append(h('button', { type: 'button', class: 'secondary-btn bs-add', text: `＋ 「${t.label}」にボタンを足す`, onclick: () => {
         const nb = { kind: 'c-' + newId().slice(0, 8), label: '', icon: '⭐', tab: t.key }
         list.push(nb); pickFor = null; paint()
