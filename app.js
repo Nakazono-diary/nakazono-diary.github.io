@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.19.2'
+const VERSION = '0.19.3'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -39,7 +39,7 @@ const DEFAULT_BUTTONS = [
   { kind: 'shopping', label: '買い物', icon: '🛒', tab: 'errand', askPlace: true, span: true },
   { kind: 'bank', label: '銀行', icon: '🏦', tab: 'errand', askPlace: true, span: true },
   { kind: 'cityhall', label: '役所', icon: '🏛️', tab: 'errand', askPlace: true, span: true },
-  { kind: 'barber', label: '床屋', icon: '💈', tab: 'errand', askPlace: true, span: true },
+  { kind: 'barber', label: '美容院・床屋', icon: '💇', tab: 'errand', askPlace: true, span: true },   // v0.19.3 本人「床屋だけはおかしい」(前は 💈 床屋)
   // v0.11: 外出(仕事の途中・昼食を買いに など。戻りで終わる)と、移動だけの記録(本人 2026-11-03)
   { kind: 'goout', label: '外出', icon: '🚶', tab: 'go', askPlace: true, span: true },
   { kind: 'back', label: '戻り', icon: '🔙', tab: 'go', askPlace: true },
@@ -131,8 +131,15 @@ const CANDIDATES = [
   { group: '🏠 家で', items: [['cooking', '料理', '🍳', false], ['sweets', 'お菓子作り', '🧁', false], ['instrument', '楽器', '🎹', false], ['craft', '手芸', '🧶', false],
     ['garden', 'ガーデニング', '🌱', false], ['photo', '写真', '📷'], ['manga', 'マンガ', '📚', false], ['douga', '動画', '🎞️', false], ['boardgame', 'ボードゲーム', '🎲', false],
     ['mahjong', '麻雀', '🀄'], ['shogi', '将棋・囲碁', '♟️', false], ['nap', '昼寝', '😴', false]] },
-].map(g => ({ group: g.group, items: g.items.map(([kind, label, icon, place]) => ({ kind, label, icon, place: place !== false })) }))
-const CAND_KINDS = CANDIDATES.flatMap(g => g.items.map(x => x.kind))
+  // v0.19.3 本人「美容院も」「女性目線ならネイル・まつエク・エステ」「家中心なら育児」→ 全部。最初の画面には出さず、ここから選んだ人だけ
+  // play: false = 統計の「遊び」に数えない、fun: false = 楽しかった度を聞かない
+  { group: '💅 身だしなみ', play: false, fun: false, items: [['hairsalon', '美容院', '💇'], ['barbershop', '床屋', '💈'], ['nail', 'ネイル', '💅'], ['matsuek', 'まつエク', '👁️'],
+    ['esthe', 'エステ', '🧖‍♀️'], ['mayu', 'まゆ毛', '✨'], ['massage', 'マッサージ', '💆'], ['seitai', '整体', '🦴'], ['datsumo', '脱毛', '🪒']] },
+  { group: '👶 子育て', play: false, fun: false, items: [['childcare', '育児', '👶', false], ['junyu', '授乳', '🍼', false], ['omutsu', 'おむつ', '🧷', false, false],
+    ['nekashi', '寝かしつけ', '💤', false], ['pickup', '送り迎え', '🚗']] },
+].map(g => ({ group: g.group, play: g.play !== false, fun: g.fun !== false, items: g.items.map(([kind, label, icon, place, span]) => ({ kind, label, icon, place: place !== false, span: span !== false })) }))
+// 統計の「遊び」に数える候補(身だしなみ・子育ては入れない)
+const CAND_KINDS = CANDIDATES.filter(g => g.play).flatMap(g => g.items.map(x => x.kind))
 // 1つのタブに置けるボタンの数(v0.18.4。本人「最大ボタン数決めないとね」)
 const MAX_PER_TAB = 20
 const PLAY_KINDS = ['dineout', 'cafe', 'movie', 'karaoke', 'stroll', 'travel', 'drinks', 'oshi', 'watch', 'onsen']
@@ -151,6 +158,7 @@ const XB = {   // ひな形だけで使うボタン(DEFAULT_BUTTONS にないも
   cooking: { kind: 'cooking', label: '料理', icon: '🍳', span: true },
   laundry: { kind: 'laundry', label: '洗濯', icon: '🧺', span: true },
   pickup: { kind: 'pickup', label: '送り迎え', icon: '🚗', span: true, askPlace: true },
+  childcare: { kind: 'childcare', label: '育児', icon: '👶', span: true },   // v0.19.3 本人「家中心で忘れてはならないのが育児」
 }
 const pbtn = (kind, tab, over = {}) => ({ ...(DEFAULT_BUTTONS.find(b => b.kind === kind) || XB[kind]), tab, ...over })
 // どのひな形にも入れるもの(遊び・用事・外出・体調)
@@ -163,9 +171,9 @@ const PRESETS = [
   { key: 'student', icon: '🎒', label: '学生', desc: '登校・下校・授業・部活・バイト・勉強', work: '学校',
     make: () => [...flowOf('wake', 'leave', 'reach', ['arrive', { label: '登校', icon: '🏫' }], ['out', { label: '下校', icon: '🎒' }], 'home', 'sleep', 'meal', 'bath'),
       ...doOf('class', 'study', 'club', 'parttime', 'lunch', 'break', 'resume', 'read', 'game', 'hobby'), ...PRESET_TAIL()] },
-  { key: 'home', icon: '🏠', label: '家のこと中心', desc: '家事・料理・洗濯・送り迎え・買い物', work: '勤務',
+  { key: 'home', icon: '🏠', label: '家のこと中心', desc: '家事・料理・洗濯・育児・送り迎え・買い物', work: '勤務',
     make: () => [...flowOf('wake', 'leave', 'reach', 'home', 'sleep', 'meal', 'bath'),
-      ...doOf('chores', 'cooking', 'laundry', 'pickup', 'break', 'resume', 'read', 'tv', 'hobby', 'fitness'), ...PRESET_TAIL()] },
+      ...doOf('chores', 'cooking', 'laundry', 'childcare', 'pickup', 'break', 'resume', 'read', 'tv', 'hobby', 'fitness'), ...PRESET_TAIL()] },
   { key: 'remote', icon: '💻', label: '在宅・フリーランス', desc: '仕事始め・仕事終わり・作業・休憩', work: '仕事',
     make: () => [...flowOf('wake', ['arrive', { label: '仕事始め', icon: '🧑‍💻', askPlace: false }], ['out', { label: '仕事終わり', icon: '🏁', askMove: false, askPlace: false, span: false }], 'leave', 'reach', 'home', 'sleep', 'meal', 'bath'),
       ...doOf('work', 'lunch', 'break', 'resume', 'read', 'tv', 'game', 'hobby', 'fitness'), ...PRESET_TAIL()] },
@@ -1946,7 +1954,7 @@ function openButtonSettings() {
                     return
                   }
                   if (list.filter(b => b.tab === t.key).length >= MAX_PER_TAB) return
-                  list.push({ kind: x.kind, label: x.label, icon: x.icon, tab: t.key, span: true, askFun: true, ...(x.place ? { askPlace: true } : {}) }); paint() } })
+                  list.push({ kind: x.kind, label: x.label, icon: x.icon, tab: t.key, ...(x.span ? { span: true } : {}), ...(g.fun ? { askFun: true } : {}), ...(x.place ? { askPlace: true } : {}) }); paint() } })
             }))))))
       }
       same.forEach((b, i) => {
