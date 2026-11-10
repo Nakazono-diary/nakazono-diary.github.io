@@ -3,14 +3,14 @@
 import * as S from './sync.js'
 import * as ED from './edition.js'
 import * as PJ from './projects.js'
-import { TRY_MODE, wipeTry, allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
+import { TRY_MODE, USER_ID, USER_SUFFIX, listUsers, saveUsers, switchUser, dropUserData, pinHash, wipeTry, allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 import { h } from './dom.js'
 import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLines, recorderButton, weatherForm, weatherText } from './body.js'
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.19.1'
+const VERSION = '0.19.2'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -281,7 +281,7 @@ function movePicker(selected, onChange) {
 // 記録の種類の見え方(消したボタンも、昔の記録のために最初の一覧から引けるようにする)
 const kindInfo = (kind) => (kind === 'memo' ? MEMO : BUTTONS.find(b => b.kind === kind) || DEFAULT_BUTTONS.find(b => b.kind === kind))
 const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土']
-const DRAFT_KEY = TRY_MODE ? 'diary.try.draft' : 'diary.draft'   // お試しモードの書きかけは別に
+const DRAFT_KEY = (TRY_MODE ? 'diary.try.draft' : 'diary.draft') + USER_SUFFIX   // 書きかけは人ごと(v0.19.2)   // お試しモードの書きかけは別に
 
 // ---------- 小道具 ----------
 const $ = (s) => document.querySelector(s)
@@ -426,7 +426,7 @@ async function render() {
 }
 
 // ---------- 1年前の今日(v0.18。今日を見ているときだけ。なければ先月の今日) ----------
-const MEMO_HIDE = 'diary.memoryHidden'
+const MEMO_HIDE = 'diary.memoryHidden' + USER_SUFFIX
 async function renderMemory(isToday) {
   const box = $('#memory')
   if (!box) return
@@ -2080,6 +2080,149 @@ function openButtonSettings() {
 }
 
 
+// ---------- 使う人(v0.19.2。本人「1つの携帯をシェアしている人向けに、ボタン一つで切り替え」) ----------
+// 本人と決めたこと: 記録もボタンも人ごとに全部分ける(置き場が別)。切り替えは簡単な4けたの番号(のぞき見よけ。本当の鍵ではない)。
+// 番号を付けた人は、切り替えるときと、アプリを開いたときに番号を聞く(開いたときは「開くときも聞く」がオンなら)。
+// 番号は人ごとにハッシュにして、1人目の置き場の settings 'users' に置く。
+let USERS = []
+const ME = () => USERS.find(u => u.id === USER_ID) || { id: USER_ID, name: 'わたし', icon: '🙂' }
+const MAX_USERS = 8
+const USER_ICONS = ['🙂', '😀', '😎', '🤓', '👩', '👨', '👧', '👦', '👵', '👴', '🐶', '🐱', '🐻', '🐰', '🌸', '🌻', '⭐', '🍀']
+const UNLOCK_KEY = 'diary.unlocked'   // sessionStorage: このアプリを開いている間、番号を入れ終わった人の id
+const unlocked = () => { try { return sessionStorage.getItem(UNLOCK_KEY) === USER_ID } catch { return false } }
+const setUnlocked = (id) => { try { sessionStorage.setItem(UNLOCK_KEY, id) } catch { /* */ } }
+function paintUserChip() {
+  const me = ME(), b = $('#userbtn')
+  b.replaceChildren(h('span', { text: `${me.icon} ${me.name}${me.pin ? ' 🔒' : ''}` }), h('span', { class: 'user-chip-arrow', text: '▾' }))
+  b.onclick = () => { closeMovePick(); openUsers() }
+}
+async function initUsers() {
+  USERS = await listUsers()
+  if (!USERS.some(u => u.id === USER_ID)) { switchUser('main'); return false }   // 消された人のまま開いたとき
+  paintUserChip()
+  const me = ME()
+  if (me.pin && me.askOnOpen !== false && !unlocked()) {
+    await new Promise(resolve => openLock(me, resolve))
+  }
+  return true
+}
+// 4けたの番号を聞く窓。ok(true/false)
+function pinDialog({ title, sub, onDone, onCancel, extra }) {
+  const sheet = $('#sheet')
+  const input = h('input', { class: 'pin-input', type: 'password', inputmode: 'numeric', autocomplete: 'off', maxlength: '4', pattern: '[0-9]*', 'aria-label': '4けたの番号' })
+  const msg = h('p', { class: 'muted pin-msg', role: 'status' })
+  const check = async () => {
+    const v = input.value.replace(/\D/g, '')
+    if (v.length !== 4) return
+    const r = await onDone(v)
+    if (r === false) { msg.textContent = '番号が違います'; input.value = ''; input.focus() }
+  }
+  input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 4); if (input.value.length === 4) check() })
+  sheet.replaceChildren(h('div', { class: 'sheet-inner pin-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+    h('div', { class: 'sheet-top' }, h('h2', { text: title }), onCancel ? h('button', { type: 'button', class: 'link-btn', text: 'やめる', onclick: onCancel }) : null),
+    h('div', { class: 'sheet-body' }, sub ? h('p', { class: 'hint', text: sub }) : null, input, msg, extra || null)))
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+  setTimeout(() => input.focus(), 50)
+}
+function closeSheetPlain() { const sheet = $('#sheet'); sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+// その人の番号が合っているか
+const pinOk = async (u, v) => (await pinHash(u.id, v)) === u.pin
+// 開いたときの鍵の画面(閉じられない)。ほかの人に切り替えることはできる
+function openLock(me, resolve) {
+  pinDialog({ title: `${me.icon} ${me.name}`, sub: '4けたの番号を入れてください',
+    onDone: async (v) => { if (!(await pinOk(me, v))) return false; setUnlocked(me.id); closeSheetPlain(); resolve() },
+    extra: h('div', { class: 'us-others' }, ...USERS.filter(u => u.id !== me.id).map(u => h('button', { type: 'button', class: 'secondary-btn', text: `${u.icon} ${u.name}にする`, onclick: () => goUser(u, () => openLock(me, resolve)) })),
+      forgotBtn(me, () => openLock(me, resolve))) })
+}
+// 番号を忘れたとき: 1人目の番号で外せる(1人目が番号を付けていなければ、だれでも外せる)。1人目自身は外せない
+function forgotBtn(u, back) {
+  if (u.id === 'main') return h('p', { class: 'hint', text: '1人目の番号を忘れると、開けなくなります(記録は消えません)。' })
+  const main = USERS.find(x => x.id === 'main')
+  const drop = async () => { USERS = USERS.map(x => (x.id === u.id ? { ...x, pin: undefined } : x)); await saveUsers(USERS); setUnlocked(u.id); switchUser(u.id) }
+  return h('button', { type: 'button', class: 'link-btn', text: '番号を忘れたとき', onclick: () => {
+    if (!main.pin) { if (confirm(`${u.name}の番号を外して開きますか?`)) drop(); return }
+    pinDialog({ title: '番号を外す', sub: `${main.icon} ${main.name}(1人目)の番号を入れると、${u.name}の番号を外せます。`,
+      onCancel: back,
+      onDone: async (v) => { if (!(await pinOk(main, v))) return false; await drop() } })
+  } })
+}
+// ほかの人に切り替える(番号があれば聞く)
+function goUser(u, back) {
+  if (!u.pin) { setUnlocked(u.id); switchUser(u.id); return }
+  pinDialog({ title: `${u.icon} ${u.name}にする`, sub: '4けたの番号を入れてください', onCancel: back,
+    onDone: async (v) => { if (!(await pinOk(u, v))) return false; setUnlocked(u.id); switchUser(u.id) },
+    extra: forgotBtn(u, back) })
+}
+// 使う人の画面
+function openUsers() {
+  const sheet = $('#sheet')
+  const body = h('div', { class: 'sheet-body' })
+  let edit = null   // 直している人(いまの人か、新しく足す人)
+  const close = () => closeSheetPlain()
+  const paint = () => {
+    if (edit) { paintEdit(); return }
+    body.replaceChildren(
+      h('p', { class: 'hint', text: '1台のスマホを何人かで使うときに。人ごとに、記録・ボタン・場所・同期が全部別々になります。' }),
+      h('div', { class: 'us-list' }, ...USERS.map(u => h('div', { class: 'us-row' + (u.id === USER_ID ? ' is-me' : '') },
+        h('button', { type: 'button', class: 'us-pick', disabled: u.id === USER_ID, onclick: () => goUser(u, () => { openUsers() }) },
+          h('span', { class: 'us-icon', text: u.icon }), h('span', { class: 'us-name', text: u.name }), u.pin ? h('span', { class: 'us-lock', text: '🔒' }) : null,
+          h('span', { class: 'us-now', text: u.id === USER_ID ? 'いま' : '切り替える' })),
+        u.id === USER_ID ? h('button', { type: 'button', class: 'bs-op', text: '直す', onclick: () => { edit = { ...u, isNew: false }; paint() } }) : null))),
+      h('button', { type: 'button', class: 'secondary-btn', disabled: USERS.length >= MAX_USERS, text: USERS.length >= MAX_USERS ? `${MAX_USERS}人まで` : '＋ 使う人を足す', onclick: () => { edit = { id: newId().slice(0, 8), name: '', icon: USER_ICONS[USERS.length % USER_ICONS.length], isNew: true }; paint() } }),
+      h('p', { class: 'hint', text: '番号は「のぞき見よけ」です。スマホにくわしい人なら中身を見ることができるので、大事な秘密は書かないでください。' }))
+  }
+  const paintEdit = () => {
+    const e = edit
+    const name = h('input', { class: 'us-name-input', type: 'text', maxlength: '12', value: e.name, placeholder: '名前(例: ママ・たろう)', 'aria-label': '名前' })
+    name.addEventListener('input', () => { e.name = name.value })
+    const pin1 = h('input', { class: 'pin-input small', type: 'password', inputmode: 'numeric', maxlength: '4', autocomplete: 'off', placeholder: '4けた', 'aria-label': '番号' })
+    const pin2 = h('input', { class: 'pin-input small', type: 'password', inputmode: 'numeric', maxlength: '4', autocomplete: 'off', placeholder: 'もう一度', 'aria-label': '番号をもう一度' })
+    for (const el of [pin1, pin2]) el.addEventListener('input', () => { el.value = el.value.replace(/\D/g, '').slice(0, 4) })
+    const askOpen = h('input', { type: 'checkbox', checked: e.askOnOpen !== false })
+    const msg = h('p', { class: 'muted', role: 'status' })
+    const save = async () => {
+      e.name = (e.name || '').trim()
+      if (!e.name) { msg.textContent = '名前を入れてください'; return }
+      if (USERS.some(u => u.id !== e.id && u.name === e.name)) { msg.textContent = '同じ名前の人がいます'; return }
+      const p1 = pin1.value, p2 = pin2.value
+      if (p1 || p2) {
+        if (p1.length !== 4) { msg.textContent = '番号は4けたの数字です'; return }
+        if (p1 !== p2) { msg.textContent = '2つの番号がちがいます'; return }
+      }
+      const u = { id: e.id, name: e.name, icon: e.icon, askOnOpen: askOpen.checked }
+      if (p1) u.pin = await pinHash(e.id, p1); else if (!e.isNew && e.pin && !e.dropPin) u.pin = e.pin
+      if (e.isNew) USERS = [...USERS, u]; else USERS = USERS.map(x => (x.id === u.id ? u : x))
+      await saveUsers(USERS)
+      if (e.isNew) { setUnlocked(u.id); switchUser(u.id); return }
+      edit = null; paintUserChip(); paint(); showToast('保存しました')
+    }
+    body.replaceChildren(
+      h('button', { type: 'button', class: 'link-btn us-back', text: '← 使う人の一覧にもどる', onclick: () => { edit = null; paint() } }),
+      h('h3', { class: 'us-title', text: e.isNew ? '使う人を足す' : '自分を直す' }),
+      h('label', { class: 'us-field' }, h('span', { text: '名前' }), name),
+      h('div', { class: 'us-field' }, h('span', { text: '絵' }), h('div', { class: 'icon-grid' }, ...USER_ICONS.map(ic => h('button', { type: 'button', class: 'icon-pick', 'aria-pressed': ic === e.icon ? 'true' : 'false', text: ic, onclick: () => { e.name = name.value; e.icon = ic; paint() } })))),
+      h('div', { class: 'us-field' }, h('span', { text: e.pin && !e.dropPin ? '番号(いまは付いています。変えるときだけ入れる)' : '番号(付けなくてもよい)' }), h('div', { class: 'us-pins' }, pin1, pin2),
+        e.pin && !e.dropPin ? h('button', { type: 'button', class: 'link-btn', text: '番号を外す', onclick: () => { e.name = name.value; e.dropPin = true; paint() } }) : null,
+        h('label', { class: 'us-check' }, askOpen, h('span', { text: 'アプリを開くときも番号を聞く' })),
+        e.id === 'main' ? h('p', { class: 'hint', text: '1人目の番号は、忘れると外せません(ほかの人の番号は、1人目の番号で外せます)。' }) : null),
+      h('button', { type: 'button', class: 'primary-btn us-save', text: e.isNew ? '足して、この人に切り替える' : '保存する', onclick: save }),
+      msg,
+      !e.isNew && e.id !== 'main' ? h('button', { type: 'button', class: 'link-btn us-del', text: 'この人を消す(記録も全部)', onclick: async () => {
+        const n = (await allEntries()).length
+        if (!confirm(`${e.name}を消しますか?\nこの人の記録 ${n}件・写真・ボタン・場所も全部消えます。元に戻せません。`)) return
+        USERS = USERS.filter(x => x.id !== e.id); await saveUsers(USERS)
+        await dropUserData(e.id).catch(() => { /* 開いたままなら次に開いたときに消える */ })
+        switchUser('main') } }) : '')
+  }
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '使う人' },
+    h('div', { class: 'sheet-top' }, h('h2', { text: '👤 使う人' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
+    body))
+  paint()
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+}
+
 // ---------- お試しモード(v0.18.2。本人「デバッグ必要だから裏メニューとして」) ----------
 // 入り方: 足もとの版の数字(v0.18.2 など)を、続けて5回押す → ?try を付けて開き直す。
 // お試しモードでは別の置き場(diary-try)を使い、同期はしない。上の帯から「全部消す」「本番にもどる」。
@@ -2111,7 +2254,7 @@ function setupTryMode() {
 // ---------- グーグルドライブで同期(v0.13。中身は鍵をかけてから送る。sync.js) ----------
 // Google Cloud で作った「OAuth クライアント ID」(秘密ではない。ここに入れておけば各端末で入れずに済む)
 const DEFAULT_CLIENT_ID = ED.CLIENT_ID
-const SYNC_AFTER_LOGIN = 'diary.syncAfterLogin'
+const SYNC_AFTER_LOGIN = 'diary.syncAfterLogin' + USER_SUFFIX
 let syncing = false
 async function syncCfg() { return { clientId: DEFAULT_CLIENT_ID, ...((await getSetting('sync')) || {}) } }
 function paintSyncFoot(cfg) {
@@ -2354,6 +2497,7 @@ function isStandalone() {
 
 // ---------- 起動 ----------
 async function main() {
+  if (!(await initUsers())) return
   await loadButtons()
   await PJ.load()
   await loadLists()

@@ -12,20 +12,29 @@
 import { DEBUG_MENU } from './edition.js'
 // 公開版(DEBUG_MENU = false)では ?try を付けても本番の置き場のまま
 export const TRY_MODE = DEBUG_MENU && typeof location !== 'undefined' && /[?&]try(=|&|$)/.test(location.search)
-const DB_NAME = TRY_MODE ? 'diary-try' : 'diary'
+const BASE = TRY_MODE ? 'diary-try' : 'diary'
+
+// ---------- 使う人(v0.19.2。本人「1つの携帯をシェアしている人向けに」) ----------
+// 1人目(id 'main')はこれまでの置き場 diary をそのまま使う。2人目からは diary-u-<id>(記録もボタンも全部別)。
+// 使う人の一覧は 1人目の置き場の settings 'users' に置く。いま使っている人はこの端末の localStorage に覚える。
+const CUR_KEY = TRY_MODE ? 'diary.try.user' : 'diary.user'
+export const USER_ID = (() => { try { return localStorage.getItem(CUR_KEY) || 'main' } catch { return 'main' } })()
+const dbNameOf = (id) => (id === 'main' ? BASE : `${BASE}-u-${id}`)
+const DB_NAME = dbNameOf(USER_ID)
+// localStorage・sessionStorage の名前に付ける印(書きかけ・ログインなどを人ごとに分ける)。1人目は今までの名前のまま
+export const USER_SUFFIX = USER_ID === 'main' ? '' : `.u-${USER_ID}`
 const DB_VER = 4
 let dbp = null
 // お試しの置き場を空にする(本番の diary には触らない)
 export async function wipeTry() {
   if (!TRY_MODE) throw new Error('お試しモードではありません')
   if (dbp) { (await dbp).close(); dbp = null }
-  await new Promise((resolve, reject) => { const r = indexedDB.deleteDatabase('diary-try'); r.onsuccess = resolve; r.onerror = () => reject(r.error); r.onblocked = resolve })
+  await new Promise((resolve, reject) => { const r = indexedDB.deleteDatabase(DB_NAME); r.onsuccess = resolve; r.onerror = () => reject(r.error); r.onblocked = resolve })
 }
 
-function open() {
-  if (dbp) return dbp
-  dbp = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VER)
+function openDb(name) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(name, DB_VER)
     req.onupgradeneeded = () => {
       const db = req.result
       if (!db.objectStoreNames.contains('entries')) {
@@ -39,7 +48,48 @@ function open() {
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
+}
+function open() {
+  if (!dbp) dbp = openDb(DB_NAME)
   return dbp
+}
+
+// 使う人の一覧: [{ id, name, icon, pin?(4けたの番号のハッシュ), askOnOpen? }]。1人目の置き場から読む
+async function baseSetting(key, value) {
+  const db = USER_ID === 'main' ? await open() : await openDb(BASE)
+  try {
+    return await new Promise((resolve, reject) => {
+      const t = db.transaction(['settings'], value === undefined ? 'readonly' : 'readwrite')
+      const st = t.objectStore('settings')
+      const r = value === undefined ? st.get(key) : st.put({ key, value })
+      let out = null
+      r.onsuccess = () => { out = value === undefined ? (r.result ? r.result.value : null) : value }
+      t.oncomplete = () => resolve(out)
+      t.onerror = () => reject(t.error)
+    })
+  } finally { if (USER_ID !== 'main') db.close() }
+}
+export async function listUsers() {
+  const v = await baseSetting('users')
+  return Array.isArray(v) && v.length ? v : [{ id: 'main', name: 'わたし', icon: '🙂' }]
+}
+export const saveUsers = (list) => baseSetting('users', list)
+// 切り替える: 覚えてから開き直す(画面の中の状態を全部入れかえるため)
+export function switchUser(id) {
+  try { localStorage.setItem(CUR_KEY, id) } catch { /* */ }
+  location.reload()
+}
+// 使う人を消す(その人の記録・写真・録音・ボタンも全部)。1人目は消せない
+export async function dropUserData(id) {
+  if (id === 'main') throw new Error('1人目は消せません')
+  if (id === USER_ID && dbp) { (await dbp).close(); dbp = null }   // 開いたままだと消せないので先に閉じる
+  await new Promise((resolve, reject) => { const r = indexedDB.deleteDatabase(dbNameOf(id)); r.onsuccess = resolve; r.onerror = () => reject(r.error); r.onblocked = resolve })
+  try { for (const k of Object.keys(localStorage)) if (k.endsWith(`.u-${id}`)) localStorage.removeItem(k) } catch { /* */ }
+}
+// 4けたの番号は、そのまま置かずにハッシュにして置く(のぞき見よけ。本当の鍵ではない)
+export async function pinHash(id, pin) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`diary-pin:${id}:${pin}`))
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 const req2p = (r) => new Promise((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error) })

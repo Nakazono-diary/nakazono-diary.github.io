@@ -529,3 +529,32 @@ button, input, textarea { font: inherit; color: inherit; }
 .pz-title { margin: 0; font-size: 20px; font-weight: 700; }
 @media (min-width: 600px) { .pz-cards { grid-template-columns: 1fr 1fr; } }
 .pz-confirm .primary-btn, .pz-confirm .secondary-btn { min-height: 52px; flex-shrink: 0; }
+
+/* 使う人(v0.19.2。us- = user、pin- = 4けたの番号) */
+.user-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; min-height: 34px; padding: 0 10px; border-radius: 17px; border: 1px solid var(--line2); background: var(--surface); color: var(--text); font-size: 14px; font-weight: 600; }
+.user-chip-arrow { color: var(--muted); font-size: 12px; }
+.us-list { display: flex; flex-direction: column; gap: 8px; }
+.us-row { display: flex; align-items: center; gap: 8px; }
+.us-pick { flex: 1; display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); color: var(--text); font: inherit; text-align: left; }
+.us-row.is-me .us-pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.us-pick:disabled { opacity: 1; }
+.us-icon { font-size: 26px; }
+.us-name { font-size: 17px; font-weight: 700; flex: 1; }
+.us-now { font-size: 13px; color: var(--muted); }
+.us-row.is-me .us-now { color: var(--accent); font-weight: 700; }
+.us-row .bs-op { padding: 0 12px; height: 56px; }
+.us-back { align-self: flex-start; }
+.us-title { margin: 0; font-size: 18px; }
+.us-field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; }
+.us-name-input { height: 48px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--surface); color: var(--text); font-size: 17px; }
+.us-pins { display: flex; gap: 10px; }
+.us-check { display: flex; align-items: center; gap: 8px; font-weight: 500; min-height: 40px; }
+.us-check input { width: 22px; height: 22px; }
+.us-save { flex: none; }
+.us-del { align-self: center; color: var(--danger); }
+.us-others { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.us-others .secondary-btn { min-height: 48px; }
+.pin-input { height: 64px; width: 100%; max-width: 240px; align-self: center; text-align: center; font-size: 32px; letter-spacing: 16px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); color: var(--text); }
+.pin-input.small { height: 48px; font-size: 22px; letter-spacing: 8px; max-width: none; flex: 1; }
+.pin-msg { text-align: center; min-height: 1.4em; color: var(--danger); }
+.pin-sheet .sheet-body { align-items: stretch; }

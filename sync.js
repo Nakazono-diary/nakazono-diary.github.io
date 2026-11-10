@@ -4,13 +4,16 @@
 // ・Google の部品(プログラム)は読み込まない。つなぐのは、ログインの画面(移動するだけ)と、ドライブの API だけ。
 // ・鍵は「取り出せない形」(extractable: false)で、この端末の IndexedDB に覚える。合言葉そのものは覚えない。
 
+import { USER_SUFFIX } from './store.js'
+
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
 const API = 'https://www.googleapis.com/drive/v3'
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3'
 const MAIN = 'diary-main.v1.enc'           // 記録と設定(写真・録音の中身は別のファイル)
 const blobName = (kind, id) => `${kind}-${id}.enc`   // kind: p = 写真、a = 録音
-const TOKEN_KEY = 'diary.gtoken'
-const STATE_KEY = 'diary.gstate'
+// Google のログインは使う人ごと(v0.19.2。ほかの人のドライブに書かないため)
+const TOKEN_KEY = 'diary.gtoken' + USER_SUFFIX
+const STATE_KEY = 'diary.gstate' + USER_SUFFIX
 const ITER = 600000
 const MAGIC = [0x44, 0x52, 0x59, 0x31]     // "DRY1"
 
