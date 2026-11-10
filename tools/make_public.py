@@ -118,7 +118,8 @@ def main():
         (OUT / name).write_text(src, encoding='utf-8', newline='\n')
     for name, p in {**SWAP, **EXTRA}.items():
         shutil.copyfile(p, OUT / name)
-    shutil.copytree(ROOT / 'icons', OUT / 'icons')
+    # アイコンは公開用の紺(tools/public/icons)。個人版の icons はオレンジ(v0.19.4 本人「ホーム画面で2つ並ぶと区別がつかない」)
+    shutil.copytree(PUB / 'icons', OUT / 'icons')
 
     # 確かめ: 決めた言葉が残っていない・JS の書き方が壊れていない・sw のファイル一覧がそろっている
     problems = []
