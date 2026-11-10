@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.19.0'
+const VERSION = '0.19.1'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -67,6 +67,8 @@ const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['rea
   goout: ['back', 'home'], trip: ['reach', 'arrive', 'home', 'back'] }
 // 長さの呼び名(就寝の長さは「睡眠」など)
 const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務', goout: '外出', trip: '移動' }
+// 記録の長さの呼び名。出社の組は押したときの呼び名(sname。v0.19.1 ひな形で「学校」「仕事」に変わるため)を使う
+const spanNameOf = (e) => (e && e.sname) || SPAN_NAME[e.kind]
 const fmtDur = (min) => { min = Math.max(0, Math.round(min)); const h2 = Math.floor(min / 60), m = min % 60; return h2 ? `${h2}時間${m ? `${m}分` : ''}` : `${m}分` }
 const durMin = (a, b) => (new Date(b) - new Date(a)) / 60000
 const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
@@ -80,6 +82,7 @@ let BUTTONS = DEFAULT_BUTTONS.map(b => ({ ...b }))
 async function loadButtons() {
   try {
     const v = await getSetting('buttons')
+    if (v && v.preset) { PRESET = v.preset; applyPresetNames() }
     if (v && Array.isArray(v.buttons) && v.buttons.length) {
       BUTTONS = v.buttons
       // あとから増えた最初のボタンを、いちどだけ足す(本人が消したら、もう足さない)
@@ -134,6 +137,48 @@ const CAND_KINDS = CANDIDATES.flatMap(g => g.items.map(x => x.kind))
 const MAX_PER_TAB = 20
 const PLAY_KINDS = ['dineout', 'cafe', 'movie', 'karaoke', 'stroll', 'travel', 'drinks', 'oshi', 'watch', 'onsen']
 const ADDED_LATER = ['work', 'health', 'bowel', 'weather', 'goout', 'back', 'trip', 'bath', ...PLAY_KINDS]   // v0.6・v0.7・v0.11・v0.16・v0.18 で増えた最初のボタン
+
+// ---------- ひな形(v0.19.1。本人「学生さんなら出社じゃないよな」「主婦さんならどうだろう」) ----------
+// 最初に開いたときと、ボタン設定の「ひな形から選び直す」で選ぶ。選んだあとも1つずつ自由に直せる。
+// kind は同じ意味のまま名前だけ変える(登校 = 出社の kind 'arrive')。なので昔の「出社」と新しい「登校」は統計では続けて数える。
+// 記録には押したときの名前と絵が入っているので、ひな形を変えても昔の記録の見た目は変わらない。
+const XB = {   // ひな形だけで使うボタン(DEFAULT_BUTTONS にないもの)
+  class: { kind: 'class', label: '授業', icon: '📚', span: true },
+  study: { kind: 'study', label: '勉強', icon: '✏️', span: true },
+  club: { kind: 'club', label: '部活', icon: '⚽', span: true, askPlace: true },
+  parttime: { kind: 'parttime', label: 'バイト', icon: '💼', span: true, askPlace: true },
+  chores: { kind: 'chores', label: '家事', icon: '🧹', span: true },
+  cooking: { kind: 'cooking', label: '料理', icon: '🍳', span: true },
+  laundry: { kind: 'laundry', label: '洗濯', icon: '🧺', span: true },
+  pickup: { kind: 'pickup', label: '送り迎え', icon: '🚗', span: true, askPlace: true },
+}
+const pbtn = (kind, tab, over = {}) => ({ ...(DEFAULT_BUTTONS.find(b => b.kind === kind) || XB[kind]), tab, ...over })
+// どのひな形にも入れるもの(遊び・用事・外出・体調)
+const PRESET_TAIL = () => DEFAULT_BUTTONS.filter(b => ['play', 'errand', 'go', 'body'].includes(b.tab)).map(b => ({ ...b }))
+const flowOf = (...ks) => ks.map(k => (Array.isArray(k) ? pbtn(k[0], 'flow', k[1]) : pbtn(k, 'flow')))
+const doOf = (...ks) => ks.map(k => (Array.isArray(k) ? pbtn(k[0], 'do', k[1]) : pbtn(k, 'do')))
+const PRESETS = [
+  { key: 'office', icon: '🏢', label: '会社員', desc: '出社・退社・昼休み', work: '勤務',
+    make: () => DEFAULT_BUTTONS.map(b => ({ ...b })) },
+  { key: 'student', icon: '🎒', label: '学生', desc: '登校・下校・授業・部活・バイト・勉強', work: '学校',
+    make: () => [...flowOf('wake', 'leave', 'reach', ['arrive', { label: '登校', icon: '🏫' }], ['out', { label: '下校', icon: '🎒' }], 'home', 'sleep', 'meal', 'bath'),
+      ...doOf('class', 'study', 'club', 'parttime', 'lunch', 'break', 'resume', 'read', 'game', 'hobby'), ...PRESET_TAIL()] },
+  { key: 'home', icon: '🏠', label: '家のこと中心', desc: '家事・料理・洗濯・送り迎え・買い物', work: '勤務',
+    make: () => [...flowOf('wake', 'leave', 'reach', 'home', 'sleep', 'meal', 'bath'),
+      ...doOf('chores', 'cooking', 'laundry', 'pickup', 'break', 'resume', 'read', 'tv', 'hobby', 'fitness'), ...PRESET_TAIL()] },
+  { key: 'remote', icon: '💻', label: '在宅・フリーランス', desc: '仕事始め・仕事終わり・作業・休憩', work: '仕事',
+    make: () => [...flowOf('wake', ['arrive', { label: '仕事始め', icon: '🧑‍💻', askPlace: false }], ['out', { label: '仕事終わり', icon: '🏁', askMove: false, askPlace: false, span: false }], 'leave', 'reach', 'home', 'sleep', 'meal', 'bath'),
+      ...doOf('work', 'lunch', 'break', 'resume', 'read', 'tv', 'game', 'hobby', 'fitness'), ...PRESET_TAIL()] },
+  { key: 'shift', icon: '🌙', label: 'シフト勤務', desc: '出勤・退勤(夜勤もそのまま続けて記録)', work: '勤務',
+    make: () => DEFAULT_BUTTONS.map(b => (b.kind === 'arrive' ? { ...b, label: '出勤', icon: '⏰' } : b.kind === 'out' ? { ...b, label: '退勤', icon: '🌃' } : { ...b })) },
+  { key: 'custom', icon: '✏️', label: '自分で作る', desc: '起床・就寝・食事などだけ。あとはボタン設定で足す', work: '勤務',
+    make: () => [...flowOf('wake', 'leave', 'reach', 'home', 'sleep', 'meal', 'bath'), ...DEFAULT_BUTTONS.filter(b => b.tab === 'body').map(b => ({ ...b }))] },
+]
+let PRESET = 'office'
+const presetOf = (k) => PRESETS.find(p => p.key === k) || PRESETS[0]
+// 統計などで使う「出社〜退社」の呼び名(学生なら「学校」)
+function applyPresetNames() { SPAN_NAME.arrive = presetOf(PRESET).work }
+const workLabels = () => ({ a: (BUTTONS.find(b => b.kind === 'arrive') || {}).label || '出社', o: (BUTTONS.find(b => b.kind === 'out') || {}).label || '退社' })
 // お薬・気になることの登録(本人が足す)、潮位表
 const LISTS = {
   meds: [], symptoms: [...DEFAULT_SYMPTOMS],
@@ -154,9 +199,9 @@ async function loadLists() {
 }
 // ボタンの見た目以外に持つもの(保存・読み込みで残す)
 const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(b.askFun ? { askFun: true } : {}), ...(b.askWith != null ? { askWith: !!b.askWith } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
-async function saveButtons(list) {
-  BUTTONS = list
-  await putSetting('buttons', { buttons: list, added: ADDED_LATER, placeAdded: true, spanAdded: true, updated_at: stamp(new Date()) })
+async function saveButtons(list, preset = PRESET) {
+  BUTTONS = list; PRESET = preset; applyPresetNames()
+  await putSetting('buttons', { buttons: list, preset, added: ADDED_LATER, placeAdded: true, spanAdded: true, updated_at: stamp(new Date()) })
 }
 const MEMO = { kind: 'memo', label: 'メモ', icon: '✏️' }
 // 移動手段(いくつでも、押した順に並ぶ)
@@ -443,7 +488,7 @@ function renderDayBand(day, list) {
   }
   const track = h('div', { class: 'band-track' })
   for (const sg of segs) {
-    const el = h('div', { class: `band-seg ${sg.cls}`, title: `${sg.e.icon || ''} ${SPAN_NAME[sg.e.kind] || sg.e.label} ${hm(stamp(new Date(sg.a)))}〜${hm(stamp(new Date(sg.b)))}` })
+    const el = h('div', { class: `band-seg ${sg.cls}`, title: `${sg.e.icon || ''} ${spanNameOf(sg.e) || sg.e.label} ${hm(stamp(new Date(sg.a)))}〜${hm(stamp(new Date(sg.b)))}` })
     el.style.left = `${(sg.a - d0) / 864000}%`
     el.style.width = `${Math.max(0.3, (sg.b - sg.a) / 864000)}%`
     track.append(el)
@@ -474,7 +519,7 @@ async function renderOngoing() {
     const item = h('div', { class: 'og-item' + (min > 12 * 60 ? ' long' : '') + (isMove ? ' is-move' : '') },
       h('div', { class: 'og-main' },
         h('span', { class: 'og-icon', 'aria-hidden': 'true', text: e.icon || (kindInfo(e.kind) || {}).icon || '・' }),
-        h('span', { class: 'og-text' }, h('strong', { text: isMove ? (e.label || SPAN_NAME[e.kind]) : (SPAN_NAME[e.kind] || e.label) }),
+        h('span', { class: 'og-text' }, h('strong', { text: isMove ? (e.label || spanNameOf(e)) : (spanNameOf(e) || e.label) }),
           ` ${e.day !== dayOf(now) ? '前日 ' : ''}${hm(e.at)}〜(${fmtDur(min)}${min > 12 * 60 ? '・終わり忘れ?' : ''})`,
           isMove && legs.length ? h('span', { class: 'og-legs', text: legsText(e) }) : null),
         h('button', { type: 'button', class: 'og-end', text: '終わった', onclick: () => finishNow(e) })))
@@ -501,7 +546,7 @@ async function finishNow(e) {
   if (!cur) return
   await putEntry({ ...cur, end: ts, updated_at: ts })
   await render()
-  showToast(`「${SPAN_NAME[e.kind] || e.label}」を終えました(${fmtDur(durMin(e.at, ts))})`, [
+  showToast(`「${spanNameOf(e) || e.label}」を終えました(${fmtDur(durMin(e.at, ts))})`, [
     { label: '取り消す', fn: async () => { const c = await getEntry(e.id); if (c) { delete c.end; await putEntry(c); render() } } },
   ])
 }
@@ -582,12 +627,12 @@ async function card(e) {
   if (e.span) {
     const min = durMin(e.at, e.end || new Date())
     body.append(h('p', { class: 'tl-dur' + (e.end ? '' : ' on') },
-      e.end ? `${SPAN_NAME[e.kind] ? `${SPAN_NAME[e.kind]} ` : ''}${fmtDur(min)}` : h('span', { class: 'live-dur', 'data-at': e.at, text: `続いています ・ ${fmtDur(min)}` }),
+      e.end ? `${spanNameOf(e) ? `${spanNameOf(e)} ` : ''}${fmtDur(min)}` : h('span', { class: 'live-dur', 'data-at': e.at, text: `続いています ・ ${fmtDur(min)}` }),
       e.end ? null : h('button', { type: 'button', class: 'og-end small', text: '終わった', onclick: (ev) => { ev.stopPropagation(); finishNow(e) } })))
   }
   // この記録で終えたもの(起床 → 睡眠 など)
   for (const x of ENDED.get(e.id) || []) {
-    body.append(h('p', { class: 'tl-dur' }, `${x.icon || ''} ${SPAN_NAME[x.kind] || x.label} ${x.day !== e.day ? '前日 ' : ''}${hm(x.at)}〜${hm(x.end)}(${fmtDur(durMin(x.at, x.end))})`))
+    body.append(h('p', { class: 'tl-dur' }, `${x.icon || ''} ${spanNameOf(x) || x.label} ${x.day !== e.day ? '前日 ' : ''}${hm(x.at)}〜${hm(x.end)}(${fmtDur(durMin(x.at, x.end))})`))
     if (legsOf(x).length) body.append(h('p', { class: 'tl-moves', text: legsText(x) }))
   }
   // v0.18: 楽しかった度(遊びのボタンなど askFun の記録と、もう付けた記録)
@@ -684,14 +729,14 @@ async function quickRecord(b) {
   // 同じボタンが続いている途中なら、それを終える(もう一度押す=終わった)
   const same = b.span ? ongoing.find(x => x.kind === b.kind) : null
   if (same) { closeMovePick(); await finishNow(same); setDockDown(true); return }
-  const e = { id: newId(), at: ts, day: dayOf(now), kind: b.kind, label: b.label, icon: b.icon, text: '', photos: [], created_at: ts, updated_at: ts, ...(b.span ? { span: true } : {}) }
+  const e = { id: newId(), at: ts, day: dayOf(now), kind: b.kind, label: b.label, icon: b.icon, text: '', photos: [], created_at: ts, updated_at: ts, ...(b.span ? { span: true } : {}), ...(b.span && b.kind === 'arrive' ? { sname: SPAN_NAME.arrive } : {}) }
   // 組になっているもの(就寝→起床 など)を終える
   const ended = ongoing.filter(x => (END_BY[x.kind] || []).includes(b.kind))
   for (const x of ended) await putEntry({ ...x, end: ts, end_by: e.id, updated_at: ts })
   await putEntry(e)
   if (navigator.vibrate) navigator.vibrate(15)
   await render()
-  const endTxt = ended.map(x => `「${SPAN_NAME[x.kind] || x.label}」${fmtDur(durMin(x.at, ts))}`).join('・')
+  const endTxt = ended.map(x => `「${spanNameOf(x) || x.label}」${fmtDur(durMin(x.at, ts))}`).join('・')
   showToast(`${hm(e.at)} 「${b.label}」を${b.span ? '始めました' : '記録しました'}${endTxt ? `(${endTxt}を終えました)` : ''}`, [
     { label: '書き足す', fn: () => { closeMovePick(); openEditor(e.id) } },
     { label: '取り消す', fn: async () => {
@@ -969,7 +1014,7 @@ async function openEditor(id, preset = {}) {
       link.next = y ? [y] : all.filter(x => m16(x.at) === m16(editing.end))
     }
   }
-  const nameOf = (x) => SPAN_NAME[x.kind] || x.label
+  const nameOf = (x) => spanNameOf(x) || x.label
   const linkChk = h('input', { type: 'checkbox', checked: true })
   const linkBox = (link.prev.length || link.next.length)
     ? h('label', { class: 'ed-link' }, linkChk, h('span', {},
@@ -1660,6 +1705,7 @@ async function openStats() {
         : h('p', { class: 'muted', text: 'この期間には、記録が8時間以上ある日がまだありません。' })
     }
     // 勤務
+    const WL = workLabels()
     const works = workDays(all, inP)
     const wGross = works.reduce((a, d) => a + d.gross, 0), wNet = works.reduce((a, d) => a + d.net, 0)
     const wRecent = works.slice(-7)
@@ -1731,18 +1777,18 @@ async function openStats() {
           onclick: () => { pieMode = k; paint() } }))),
         pieBox,
         h('p', { class: 'hint', text: '時間が重なっているときは、移動 → 食事・昼休み → 休憩 → 外出 → 睡眠 → そのほか → 勤務・作業 の順に優先して色を付けています。' })),
-      h('section', { class: 'st-card' }, h('h3', { text: '🏢 勤務(出社〜退社)' }),
+      h('section', { class: 'st-card' }, h('h3', { text: `🏢 ${SPAN_NAME.arrive}(${WL.a}〜${WL.o})` }),
         works.length ? h('div', {},
           h('p', { class: 'st-big', text: `実働 ${fmtDur(wNet)}` }),
-          h('p', { class: 'st-line', text: `${works.length}日 ・ 1日平均 実働 ${fmtDur(wNet / works.length)}(出社〜退社 ${fmtDur(wGross / works.length)})` }),
-          h('p', { class: 'st-line', text: `出社の平均 ${hmAvg(works.map(d => d.at))} ・ 退社の平均 ${hmAvg(works.map(d => d.end))}` }),
-          h('p', { class: 'st-sub2', text: '最近の勤務(実働)' }),
+          h('p', { class: 'st-line', text: `${works.length}日 ・ 1日平均 実働 ${fmtDur(wNet / works.length)}(${WL.a}〜${WL.o} ${fmtDur(wGross / works.length)})` }),
+          h('p', { class: 'st-line', text: `${WL.a}の平均 ${hmAvg(works.map(d => d.at))} ・ ${WL.o}の平均 ${hmAvg(works.map(d => d.end))}` }),
+          h('p', { class: 'st-sub2', text: `最近の${SPAN_NAME.arrive}(実働)` }),
           bars(wRecent.map(d => ({ icon: '', label: `${Number(d.day.slice(5, 7))}/${Number(d.day.slice(8, 10))}`, value: Math.round(d.net), sub: `${hm(d.at)}〜${hm(d.end)}` }))),
-          h('p', { class: 'hint', text: '実働は、出社〜退社から「昼休み」「休憩」の時間を引いたものです。' }))
-          : h('p', { class: 'muted', text: 'まだ出社〜退社の記録がありません。会社に着いたら「出社」、出るときに「退社」を押すと、ここに集まります。' })),
+          h('p', { class: 'hint', text: `実働は、${WL.a}〜${WL.o}から「昼休み」「休憩」の時間を引いたものです。` }))
+          : h('p', { class: 'muted', text: `まだ${WL.a}〜${WL.o}の記録がありません。「${WL.a}」と「${WL.o}」を押すと、ここに集まります。` })),
       h('section', { class: 'st-card' }, h('h3', { text: '🚃 移動手段' }),
         modeRows.length ? bars(modeRows) : h('p', { class: 'muted', text: 'まだ時刻のある移動がありません。出発のあと、乗りかえるたびに下の帯の移動手段を押すと、ここに集まります。' }),
-        commutes.length ? h('p', { class: 'st-line', text: `🏢 通勤(出発 → 出社): 平均 ${fmtDur(commuteAvg)}(${commutes.length}回)` }) : null,
+        commutes.length ? h('p', { class: 'st-line', text: `🏢 通勤(出発 → ${WL.a}): 平均 ${fmtDur(commuteAvg)}(${commutes.length}回)` }) : null,
         untimed ? h('p', { class: 'hint', text: `時刻のない移動手段の記録が ${untimed}件あります(v0.9 より前の分。回数だけで、時間には入っていません)。` }) : null),
       h('section', { class: 'st-card' }, h('h3', { text: '🌙 睡眠' }),
         sleeps.length ? h('div', {},
@@ -1822,6 +1868,32 @@ async function openPlaces() {
 }
 
 // ---------- ボタン設定(足す・名前と絵を変える・並べ替える・消す・移動手段を聞く) ----------
+// ひな形を選ぶカード(v0.19.1)
+function presetCards(current, onPick) {
+  return h('div', { class: 'pz-cards' }, ...PRESETS.map(p => h('button', { type: 'button', class: 'pz-card', 'aria-pressed': p.key === current ? 'true' : 'false', onclick: () => onPick(p) },
+    h('span', { class: 'pz-icon', text: p.icon }), h('span', { class: 'pz-text' }, h('strong', { text: p.label }), h('small', { text: p.desc })))))
+}
+// 最初に開いたとき(ボタンをまだ一度も保存していなくて、記録もないとき)に、ひな形を選んでもらう
+async function maybeFirstPreset() {
+  if (await getSetting('buttons')) return
+  if ((await allEntries()).length) return
+  const sheet = $('#sheet')
+  const pick = async (p) => {
+    await saveButtons(p.make().map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })), p.key)
+    buildButtons()
+    sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll')
+    showToast(`「${p.label}」のボタンにしました。あとから「ボタン設定」でいつでも変えられます`)
+  }
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'はじめに' },
+    h('div', { class: 'sheet-top' }, h('h2', { text: 'ようこそ 📔' })),
+    h('div', { class: 'sheet-body' },
+      h('p', { class: 'pz-lead', text: 'あなたの毎日に近いのは?' }),
+      h('p', { class: 'hint', text: '選んだ形でボタンを並べます。あとから「ボタン設定」で名前・絵・並びを変えたり、選び直したりできます。' }),
+      presetCards(null, pick))))
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+}
+
 function openButtonSettings() {
   const sheet = $('#sheet')
   let list = BUTTONS.map(b => ({ ...b }))
@@ -1846,6 +1918,7 @@ function openButtonSettings() {
   const paint = () => {
     const keep = body.scrollTop          // 押したあとに画面が動かないように(v0.18.4)
     requestAnimationFrame(() => { body.scrollTop = keep })
+    if (pzOpen) { pzView(); return }
     body.replaceChildren(h('p', { class: 'hint', text: 'ボタンの名前・絵・並びを変えられます。消しても、そのボタンで記録した分は残ります。最後に「保存する」を押してください。' }),
       h('div', { class: 'tabs bs-tabs', role: 'tablist', 'aria-label': 'どのタブのボタンを見るか' },
         ...TABS.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === showTab ? 'true' : 'false',
@@ -1928,10 +2001,38 @@ function openButtonSettings() {
       } }))
       body.append(sec)
     }
-    body.append(h('button', { type: 'button', class: 'link-btn bs-reset', text: '最初のボタンに戻す', onclick: () => {
-      if (!confirm('ボタンを最初の並びに戻しますか?(自分で足したボタンは消えます。記録は残ります)')) return
-      list = DEFAULT_BUTTONS.map(b => ({ ...b })); paint() } }), msg)
+    body.append(h('button', { type: 'button', class: 'secondary-btn pz-open', text: '📋 ひな形から選び直す', onclick: () => { pzOpen = true; paint(); body.scrollTop = 0 } }), msg)
   }
+  // ひな形から選び直す(v0.19.1)。選んだら「置き換える/足りないボタンだけ足す」を選ぶ。保存するまでは決まらない
+  let pzOpen = false, pzPick = null
+  const pzView = () => {
+    body.replaceChildren(h('div', { class: 'pz-back' }, h('button', { type: 'button', class: 'link-btn', text: '← ボタン設定にもどる', onclick: () => { pzOpen = false; pzPick = null; paint() } })))
+    if (!pzPick) {
+      body.append(h('p', { class: 'hint', text: 'いまの暮らしに近いものを選んでください。これまでの記録は、記録したときの名前のまま残ります。' }), presetCards(PRESET, (p) => { pzPick = p; paint() }))
+      return
+    }
+    const p = pzPick, next = p.make()
+    const missing = next.filter(b => !list.some(x => x.kind === b.kind))
+    const apply = (mode) => {
+      const before = list.map(b => ({ ...b })), beforePreset = newPreset
+      if (mode === 'replace') list = next
+      else for (const b of missing) {
+        if (list.filter(x => x.tab === b.tab).length >= MAX_PER_TAB) continue
+        let i = -1; list.forEach((x, j) => { if (x.tab === b.tab) i = j })
+        list.splice(i < 0 ? list.length : i + 1, 0, b)
+      }
+      newPreset = p.key; pzOpen = false; pzPick = null; paint()
+      showToast(`「${p.label}」のひな形にしました(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { list = before; newPreset = beforePreset; paint() } }])
+    }
+    body.append(h('section', { class: 'pz-confirm' },
+      h('p', { class: 'pz-title', text: `${p.icon} ${p.label}` }),
+      h('p', { class: 'hint', text: `このひな形のボタン: ${next.filter(b => ['flow', 'do'].includes(b.tab)).map(b => b.label).join('・')} など` }),
+      h('button', { type: 'button', class: 'primary-btn', text: '今のボタンを置き換える', onclick: () => apply('replace') }),
+      h('p', { class: 'hint', text: '自分で足したボタンや、名前を変えたボタンも、このひな形の形にもどります。' }),
+      h('button', { type: 'button', class: 'secondary-btn', disabled: !missing.length, text: missing.length ? `足りないボタンだけ足す(${missing.length}個)` : '足りないボタンはありません', onclick: () => apply('add') }),
+      h('p', { class: 'hint', text: '今のボタンはそのまま。このひな形にあって今ないボタンだけを、それぞれのタブの最後に足します。' })))
+  }
+  let newPreset = PRESET
   // だれとの一覧の編集(v0.18.6)
   const withEditor = () => {
     const moveW = (o, d) => { const i = withs.indexOf(o), j = i + d; if (j < 0 || j >= withs.length) return; [withs[i], withs[j]] = [withs[j], withs[i]]; paint() }
@@ -1964,7 +2065,7 @@ function openButtonSettings() {
     await saveWiths(withs.map(o => ({ key: o.key, label: o.label, icon: o.icon })))
     list.forEach(b => { b.label = (b.label || '').trim() })
     if (list.some(b => !b.label)) { msg.textContent = '名前が空のボタンがあります'; return }
-    await saveButtons(list.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })))
+    await saveButtons(list.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })), newPreset)
     buildButtons()
     close()
     showToast('ボタンを保存しました')
@@ -2143,7 +2244,7 @@ async function runSync(report = (t) => showToast(t)) {
     const rs = (remote && remote.settings) || {}
     const myButtons = await getSetting('buttons')
     if (rs.buttons && Array.isArray(rs.buttons.buttons) && (!myButtons || (rs.buttons.updated_at || '') > (myButtons.updated_at || ''))) {
-      await putSetting('buttons', rs.buttons); BUTTONS = rs.buttons.buttons; buildButtons()
+      await putSetting('buttons', rs.buttons); BUTTONS = rs.buttons.buttons; if (rs.buttons.preset) { PRESET = rs.buttons.preset; applyPresetNames() } buildButtons()
     }
     if (Array.isArray(rs.places)) {
       const add = rs.places.filter(p => p && typeof p.id === 'string' && !PLACES.some(x => x.id === p.id))
@@ -2286,6 +2387,7 @@ async function main() {
   else if (back && back.ok && resume) setTimeout(() => runSync(), 300)
   $('#ios-install').hidden = !(isIOS() && !isStandalone())
   await render()
+  await maybeFirstPreset()
   askPersist().then(ok => { $('#persist').textContent = ok ? '・ 消されない設定' : '' })
   setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `続いています ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }); document.querySelectorAll('.live-legs').forEach(el => { if (el._entry) el.textContent = legsText(el._entry) }) } }, 60 * 1000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render() })
