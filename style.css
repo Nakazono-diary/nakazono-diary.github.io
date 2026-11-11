@@ -575,3 +575,18 @@ button, input, textarea { font: inherit; color: inherit; }
 .mv-none { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
 @media (prefers-color-scheme: dark) { .mv-title, .mv-min { color: #fbbf24; } }
 .tl-item.tl-move:last-child .tl-dot::after { display: block; bottom: 10px; }
+
+/* v0.19.8 はじめに: 使うボタンを選ぶ */
+.fp-group { margin-top: 14px; }
+.fp-tab { margin: 0 0 6px; font-size: 15px; color: var(--muted); }
+.fp-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.fp-btn { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
+.fp-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--btn-soft); color: var(--text); }
+.fp-check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line2); flex: none; display: grid; place-items: center; font-size: 14px; font-weight: 800; color: #fff; }
+.fp-btn[aria-pressed="true"] .fp-check { background: var(--accent); border-color: var(--accent); }
+.fp-btn[aria-pressed="true"] .fp-check::after { content: "✓"; }
+.fp-btn[aria-pressed="false"] .fp-icon { opacity: .4; }
+.fp-icon { font-size: 22px; flex: none; }
+.fp-label { font-size: 15px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.fp-warn { margin: 4px 0 0; color: #b91c1c; font-weight: 700; font-size: 14px; }
+.fp-warn:empty { display: none; }

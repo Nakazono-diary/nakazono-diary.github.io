@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.19.7'
+const VERSION = '0.19.8'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1935,18 +1935,66 @@ async function maybeFirstPreset() {
   if (await getSetting('buttons')) return
   if ((await allEntries()).length) return
   const sheet = $('#sheet')
-  const pick = async (p) => {
-    await saveButtons(p.make().map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })), p.key)
-    buildButtons()
-    sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll')
-    showToast(`「${p.label}」のボタンにしました。あとから「ボタン設定」でいつでも変えられます`)
+  const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+  // 1. ひな形を選ぶ
+  const step1 = () => {
+    sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'はじめに' },
+      h('div', { class: 'sheet-top' }, h('h2', { text: 'ようこそ 📔' })),
+      h('div', { class: 'sheet-body' },
+        h('p', { class: 'pz-lead', text: 'あなたの毎日に近いのは?' }),
+        h('p', { class: 'hint', text: '選んだ形でボタンを並べます。次の画面で、使わないボタンを外せます。' }),
+        presetCards(null, step2))))
   }
-  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'はじめに' },
-    h('div', { class: 'sheet-top' }, h('h2', { text: 'ようこそ 📔' })),
-    h('div', { class: 'sheet-body' },
-      h('p', { class: 'pz-lead', text: 'あなたの毎日に近いのは?' }),
-      h('p', { class: 'hint', text: '選んだ形でボタンを並べます。あとから「ボタン設定」で名前・絵・並びを変えたり、選び直したりできます。' }),
-      presetCards(null, pick))))
+  // 2. v0.19.8: ひな形のボタンを全部チェック済みで見せ、使わないものを外してもらう(本人「どのボタンを使うのか選択してもらう」)
+  const step2 = (p) => {
+    const all = p.make().map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) }))
+    const on = new Set(all.map(b => b.kind))
+    const count = h('span')
+    const go = h('button', { type: 'button', class: 'primary-btn' })
+    const paintCount = () => {
+      go.textContent = `これで始める(${on.size}個)`
+      go.disabled = on.size === 0
+      count.textContent = on.size ? '' : '1つ以上選んでください'
+    }
+    const groups = TABS.map(t => {
+      const bs = all.filter(b => b.tab === t.key)
+      if (!bs.length) return null
+      return h('section', { class: 'fp-group' },
+        h('h3', { class: 'fp-tab', text: t.label }),
+        h('div', { class: 'fp-list' }, ...bs.map(b => {
+          const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': 'true' },
+            h('span', { class: 'fp-check', 'aria-hidden': 'true' }),
+            h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: b.icon }),
+            h('span', { class: 'fp-label', text: b.label }))
+          el.onclick = () => {
+            if (on.has(b.kind)) on.delete(b.kind); else on.add(b.kind)
+            el.setAttribute('aria-pressed', on.has(b.kind) ? 'true' : 'false')
+            paintCount()
+          }
+          return el
+        })))
+    }).filter(Boolean)
+    go.onclick = async () => {
+      if (!on.size) return
+      await saveButtons(all.filter(b => on.has(b.kind)), p.key)
+      buildButtons()
+      close()
+      showToast(`「${p.label}」のボタン ${on.size}個で始めます。あとから「ボタン設定」でいつでも足したり変えたりできます`)
+    }
+    paintCount()
+    sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '使うボタン' },
+      h('div', { class: 'sheet-top' }, h('h2', { text: `${p.icon || ''} ${p.label}` })),
+      h('div', { class: 'sheet-body' },
+        h('p', { class: 'pz-lead', text: '使うボタンを選んでください' }),
+        h('p', { class: 'hint', text: 'チェックの付いたボタンが並びます。使わないものは押して外してください。このままでよければ、下の「これで始める」へ。' }),
+        h('p', { class: 'fp-warn', 'aria-live': 'polite' }, count),
+        ...groups),
+      h('div', { class: 'sheet-foot' },
+        h('button', { type: 'button', class: 'secondary-btn', text: '◀ 選び直す', onclick: step1 }),
+        go)))
+    sheet.querySelector('.sheet-body').scrollTop = 0
+  }
+  step1()
   sheet.hidden = false
   document.body.classList.add('no-scroll')
 }
