@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.19.6'
+const VERSION = '0.19.7'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -75,6 +75,7 @@ const spanNameOf = (e) => (e && e.sname) || SPAN_NAME[e.kind]
 const MOMENT_KINDS = new Set(['arrive', 'out', 'leave'])
 const isMoment = (e) => !!(e && e.span && MOMENT_KINDS.has(e.kind))
 const ONGOING_WORD = { 勤務: '勤務中', 仕事: '仕事中', 学校: '学校にいます', 移動: '移動中' }
+const isMoveMoment = (e) => isMoment(e) && spanNameOf(e) === '移動'   // v0.19.7: 出発・退社のあとの移動は別の帯に
 const ongoingWord = (e) => (isMoment(e) ? ONGOING_WORD[spanNameOf(e)] || `${spanNameOf(e)}中` : '続いています')
 // 昼休み・休憩の時間(勤務の実働を出すため。render で今日と前の日の分を入れる)
 let RESTS = []
@@ -436,7 +437,10 @@ async function render() {
   releaseURLs()
   const ul = $('#timeline')
   ul.replaceChildren()
-  for (const e of list) ul.append(await card(e))
+  for (const e of list) {
+    ul.append(await card(e))
+    if (isMoveMoment(e)) ul.append(moveBlock(e))   // v0.19.7: 出発・退社のすぐ下に移動の帯
+  }
   renderDayBand(day, [...await entriesOfDay(yday), ...list])
   await renderMemory(isToday)
   if (isToday) {
@@ -646,7 +650,7 @@ async function card(e) {
     ))
   // 瞬間のボタンで、終わらせた記録があるとき: 長さはそちらのカードに出すので、ここには出さない
   const endedElsewhere = isMoment(e) && e.end && e.end_by
-  if (e.span && !endedElsewhere) {
+  if (e.span && !endedElsewhere && !isMoveMoment(e)) {
     const min = durMin(e.at, e.end || new Date())
     const word = ongoingWord(e)
     body.append(h('p', { class: 'tl-dur' + (e.end ? '' : ' on') },
@@ -656,6 +660,7 @@ async function card(e) {
   }
   // この記録で終えたもの(起床 → 睡眠 など)
   for (const x of ENDED.get(e.id) || []) {
+    if (isMoveMoment(x) && x.day === e.day) continue   // 移動は出発・退社の下の帯に出す(前の日からの移動だけここ)
     const all = durMin(x.at, x.end), rest = x.kind === 'arrive' ? restMin(x.at, x.end) : 0   // 勤務は昼休み・休憩を引いた実働も
     body.append(h('p', { class: 'tl-dur' }, `${spanNameOf(x) === '移動' && isMoment(x) ? '🚃' : x.icon || ''} ${spanNameOf(x) || x.label} ${x.day !== e.day ? '前日 ' : ''}${hm(x.at)}〜${hm(x.end)}(${fmtDur(all)}${rest > 0 ? `・実働 ${fmtDur(all - rest)}` : ''})`))
     if (legsOf(x).length) body.append(h('p', { class: 'tl-moves', text: legsText(x) }))
@@ -666,7 +671,7 @@ async function card(e) {
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: PJ.projectText(e.project) }))
-  if (legsOf(e).length && isMoment(e) && (endedElsewhere || !e.end)) { /* 帯か、終わらせた側のカードに出す */ }
+  if (legsOf(e).length && isMoment(e)) { /* 移動の帯に出す */ }
   else if (legsOf(e).length) {
     const p = h('p', { class: 'tl-moves' + (e.end ? '' : ' live-legs'), text: legsText(e) })
     p._entry = e
@@ -703,6 +708,32 @@ async function card(e) {
     h('span', { class: 'tl-dot' + (isMemo ? ' memo' : '') + (e.span ? ' span' : ''), 'aria-hidden': 'true' }),
     h('div', { class: 'tl-card', onclick: () => openEntry(e) }, body),
   )
+}
+
+// ---------- 移動の帯(v0.19.7。本人「移動は出発依存が強い。別枠に」) ----------
+// 出発・退社のカードのすぐ下に、移動の長さと乗りかえを1本の帯で出す。押すと出発・退社の記録を直す。
+function moveBlock(e) {
+  const box = h('div', { class: 'mv-body' })
+  const fill = () => {
+    const live = !e.end
+    const min = durMin(e.at, e.end || new Date())
+    const head = h('div', { class: 'mv-head' },
+      h('span', { class: 'mv-title', text: live ? `🚃 移動中 ・ ${fmtDur(min)}` : `🚃 移動 ${hm(e.at)}〜${e.end.slice(0, 10) !== e.day ? '翌' : ''}${hm(e.end)}(${fmtDur(min)})` }),
+      live ? h('button', { type: 'button', class: 'og-end small', text: '着いた', onclick: (ev) => { ev.stopPropagation(); finishNow(e) } }) : null)
+    const rows = legSpans(e).map(x => h('li', { class: 'mv-leg' + (x.live ? ' live' : '') },
+      h('span', { class: 'mv-at', text: hm(x.at) }),
+      h('span', { class: 'mv-mode', text: `${MOVE_BY[x.mode].icon} ${MOVE_BY[x.mode].label}` }),
+      h('span', { class: 'mv-min', text: x.live ? `${fmtDur(x.min)}(いま)` : fmtDur(x.min) })))
+    box.replaceChildren(head, rows.length ? h('ul', { class: 'mv-legs' }, ...rows)
+      : h('p', { class: 'mv-none', text: live ? '移動手段は下の帯で選べます' : '移動手段は「直す」で入れられます' }))
+  }
+  fill()
+  const li = h('li', { class: 'tl-item tl-move' + (e.end ? '' : ' live') },
+    h('span', { class: 'tl-time' }),
+    h('span', { class: 'tl-dot mv-line', 'aria-hidden': 'true' }),
+    h('div', { class: 'tl-card', onclick: () => openEntry(e) }, box))
+  li._fill = fill
+  return li
 }
 
 // ---------- ボタンでいま記録 ----------
@@ -2559,7 +2590,7 @@ async function main() {
   await render()
   await maybeFirstPreset()
   askPersist().then(ok => { $('#persist').textContent = ok ? '・ 消されない設定' : '' })
-  setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `${el.dataset.word || '続いています'} ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }); document.querySelectorAll('.live-legs').forEach(el => { if (el._entry) el.textContent = legsText(el._entry) }) } }, 60 * 1000)
+  setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `${el.dataset.word || '続いています'} ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }); document.querySelectorAll('.live-legs').forEach(el => { if (el._entry) el.textContent = legsText(el._entry) }); document.querySelectorAll('.tl-move.live').forEach(el => { if (el._fill) el._fill() }) } }, 60 * 1000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render() })
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.Capacitor) {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* なくても動く */ })

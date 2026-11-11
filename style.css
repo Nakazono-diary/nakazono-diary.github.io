@@ -558,3 +558,20 @@ button, input, textarea { font: inherit; color: inherit; }
 .pin-input.small { height: 48px; font-size: 22px; letter-spacing: 8px; max-width: none; flex: 1; }
 .pin-msg { text-align: center; min-height: 1.4em; color: var(--danger); }
 .pin-sheet .sheet-body { align-items: stretch; }
+
+/* v0.19.7 移動の帯(出発・退社のすぐ下) */
+.tl-move .tl-dot::before { display: none; }
+.tl-move .tl-dot::after { top: -10px; bottom: -4px; left: 4px; width: 6px; border-radius: 3px; background: #f59e0b; }
+.tl-move.live .tl-dot::after { background: repeating-linear-gradient(#f59e0b 0 8px, transparent 8px 12px); }
+.mv-body { background: color-mix(in srgb, #f59e0b 10%, var(--surface)); border: 1px dashed color-mix(in srgb, #f59e0b 60%, var(--line)); border-radius: 12px; padding: 8px 12px; }
+.mv-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mv-title { font-size: 14px; font-weight: 700; color: #b45309; flex: 1; min-width: 0; }
+.mv-legs { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+.mv-leg { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; font-size: 14px; align-items: baseline; }
+.mv-at { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+.mv-mode { font-weight: 600; }
+.mv-min { font-variant-numeric: tabular-nums; font-weight: 600; color: #b45309; }
+.mv-leg.live .mv-min { color: var(--accent); }
+.mv-none { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+@media (prefers-color-scheme: dark) { .mv-title, .mv-min { color: #fbbf24; } }
+.tl-item.tl-move:last-child .tl-dot::after { display: block; bottom: 10px; }
