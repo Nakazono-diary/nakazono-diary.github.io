@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.19.5'
+const VERSION = '0.19.6'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -63,12 +63,22 @@ const DEFAULT_BUTTONS = [
 const FORMS = ['health', 'bowel', 'weather']
 // 時間の長さ(span: true のボタンは、押すと始まり、終わりを押すまで「続いているもの」になる)
 // 組: このボタンを押すと、続いている〇〇を終える(就寝→起床 など)
-const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume'], break: ['resume'],
+const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume', 'out'], break: ['resume', 'out'],   // v0.19.6 本人「昼休みの押し忘れは退社で」
   goout: ['back', 'home'], trip: ['reach', 'arrive', 'home', 'back'] }
 // 長さの呼び名(就寝の長さは「睡眠」など)
 const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務', goout: '外出', trip: '移動' }
 // 記録の長さの呼び名。出社の組は押したときの呼び名(sname。v0.19.1 ひな形で「学校」「仕事」に変わるため)を使う
 const spanNameOf = (e) => (e && e.sname) || SPAN_NAME[e.kind]
+// v0.19.6 本人「出社と呼べるのは出社したときじゃないのかな」→ 出社・退社・出発(登校・下校・出勤・退勤・仕事始め)は「その瞬間」のボタン。
+// カードと左の時刻は押した時刻だけ。続いているあいだは「勤務中・〇分」、終わったら長さ(勤務・移動)は終わらせた側のカードに出す。
+// 就寝・食事・入浴・休憩・移動ボタンなど「していること」のボタンは今までどおり「〜」で長さを出す(本人「就寝は睡眠時間を計るうえでいい」)。
+const MOMENT_KINDS = new Set(['arrive', 'out', 'leave'])
+const isMoment = (e) => !!(e && e.span && MOMENT_KINDS.has(e.kind))
+const ONGOING_WORD = { 勤務: '勤務中', 仕事: '仕事中', 学校: '学校にいます', 移動: '移動中' }
+const ongoingWord = (e) => (isMoment(e) ? ONGOING_WORD[spanNameOf(e)] || `${spanNameOf(e)}中` : '続いています')
+// 昼休み・休憩の時間(勤務の実働を出すため。render で今日と前の日の分を入れる)
+let RESTS = []
+const restMin = (a, b) => RESTS.reduce((m, r) => { const x = Math.max(new Date(a).getTime(), new Date(r.at).getTime()), y = Math.min(new Date(b).getTime(), new Date(r.end).getTime()); return y > x ? m + (y - x) / 60000 : m }, 0)
 const fmtDur = (min) => { min = Math.max(0, Math.round(min)); const h2 = Math.floor(min / 60), m = min % 60; return h2 ? `${h2}時間${m ? `${m}分` : ''}` : `${m}分` }
 const durMin = (a, b) => (new Date(b) - new Date(a)) / 60000
 const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
@@ -413,7 +423,9 @@ async function render() {
   // 前の日に始まって今日終わったもの(睡眠など)も、終えた記録のカードに出すため
   const yday = dayOf(new Date(d.getTime() - 86400000))
   ENDED = new Map()
-  for (const x of [...await entriesOfDay(yday), ...list]) if (x.end_by) ENDED.set(x.end_by, [...(ENDED.get(x.end_by) || []), x])
+  const two = [...await entriesOfDay(yday), ...list]
+  for (const x of two) if (x.end_by) ENDED.set(x.end_by, [...(ENDED.get(x.end_by) || []), x])
+  RESTS = two.filter(x => x.span && x.end && (x.kind === 'lunch' || x.kind === 'break'))
   await renderOngoing()
   const nPhotos = list.reduce((a, e) => a + photosOf(e).length, 0)
   $('#count').textContent = list.length ? `記録 ${list.length}件${nPhotos ? ` ・ 写真 ${nPhotos}枚` : ''}` : ''
@@ -560,7 +572,7 @@ async function finishNow(e) {
 }
 // 時刻の欄の見せ方(長さのあるものは 始まり〜終わり)
 function timeCell(e) {
-  if (!e.span) return h('span', { class: 'tl-time', text: hm(e.at) })
+  if (!e.span || isMoment(e)) return h('span', { class: 'tl-time', text: hm(e.at) })
   const endTxt = e.end ? `〜${e.end.slice(0, 10) !== e.day ? '翌' : ''}${hm(e.end)}` : '〜'
   return h('span', { class: 'tl-time' }, hm(e.at), h('span', { class: 'tl-end', text: endTxt }))
 }
@@ -632,15 +644,20 @@ async function card(e) {
       h('button', { type: 'button', class: 'tl-edit', 'aria-label': `${hm(e.at)} ${e.label} を直す`, text: '直す',
         onclick: (ev) => { ev.stopPropagation(); openEntry(e) } }),
     ))
-  if (e.span) {
+  // 瞬間のボタンで、終わらせた記録があるとき: 長さはそちらのカードに出すので、ここには出さない
+  const endedElsewhere = isMoment(e) && e.end && e.end_by
+  if (e.span && !endedElsewhere) {
     const min = durMin(e.at, e.end || new Date())
+    const word = ongoingWord(e)
     body.append(h('p', { class: 'tl-dur' + (e.end ? '' : ' on') },
-      e.end ? `${spanNameOf(e) ? `${spanNameOf(e)} ` : ''}${fmtDur(min)}` : h('span', { class: 'live-dur', 'data-at': e.at, text: `続いています ・ ${fmtDur(min)}` }),
+      e.end ? (isMoment(e) ? `${spanNameOf(e)} ${hm(e.at)}〜${hm(e.end)}(${fmtDur(min)})` : `${spanNameOf(e) ? `${spanNameOf(e)} ` : ''}${fmtDur(min)}`)
+        : h('span', { class: 'live-dur', 'data-at': e.at, 'data-word': word, text: `${word} ・ ${fmtDur(min)}` }),
       e.end ? null : h('button', { type: 'button', class: 'og-end small', text: '終わった', onclick: (ev) => { ev.stopPropagation(); finishNow(e) } })))
   }
   // この記録で終えたもの(起床 → 睡眠 など)
   for (const x of ENDED.get(e.id) || []) {
-    body.append(h('p', { class: 'tl-dur' }, `${x.icon || ''} ${spanNameOf(x) || x.label} ${x.day !== e.day ? '前日 ' : ''}${hm(x.at)}〜${hm(x.end)}(${fmtDur(durMin(x.at, x.end))})`))
+    const all = durMin(x.at, x.end), rest = x.kind === 'arrive' ? restMin(x.at, x.end) : 0   // 勤務は昼休み・休憩を引いた実働も
+    body.append(h('p', { class: 'tl-dur' }, `${spanNameOf(x) === '移動' && isMoment(x) ? '🚃' : x.icon || ''} ${spanNameOf(x) || x.label} ${x.day !== e.day ? '前日 ' : ''}${hm(x.at)}〜${hm(x.end)}(${fmtDur(all)}${rest > 0 ? `・実働 ${fmtDur(all - rest)}` : ''})`))
     if (legsOf(x).length) body.append(h('p', { class: 'tl-moves', text: legsText(x) }))
   }
   // v0.18: 楽しかった度(遊びのボタンなど askFun の記録と、もう付けた記録)
@@ -649,7 +666,8 @@ async function card(e) {
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
   if (e.project && e.project.title) body.append(h('p', { class: 'tl-project', text: PJ.projectText(e.project) }))
-  if (legsOf(e).length) {
+  if (legsOf(e).length && isMoment(e) && (endedElsewhere || !e.end)) { /* 帯か、終わらせた側のカードに出す */ }
+  else if (legsOf(e).length) {
     const p = h('p', { class: 'tl-moves' + (e.end ? '' : ' live-legs'), text: legsText(e) })
     p._entry = e
     body.append(p)
@@ -2541,7 +2559,7 @@ async function main() {
   await render()
   await maybeFirstPreset()
   askPersist().then(ok => { $('#persist').textContent = ok ? '・ 消されない設定' : '' })
-  setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `続いています ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }); document.querySelectorAll('.live-legs').forEach(el => { if (el._entry) el.textContent = legsText(el._entry) }) } }, 60 * 1000)
+  setInterval(() => { if (!$('#sheet').hidden) return; if (dayOf(new Date()) !== today) render(); else { renderOngoing(); document.querySelectorAll('.live-dur').forEach(el => { el.textContent = `${el.dataset.word || '続いています'} ・ ${fmtDur(durMin(el.dataset.at, new Date()))}` }); document.querySelectorAll('.live-legs').forEach(el => { if (el._entry) el.textContent = legsText(el._entry) }) } }, 60 * 1000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render() })
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.Capacitor) {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* なくても動く */ })
