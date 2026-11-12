@@ -3,14 +3,14 @@
 import * as S from './sync.js'
 import * as ED from './edition.js'
 import * as PJ from './projects.js'
-import { TRY_MODE, USER_ID, USER_SUFFIX, listUsers, saveUsers, switchUser, dropUserData, pinHash, wipeTry, allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
+import { TRY_MODE, USER_ID, USER_SUFFIX, listUsers, saveUsers, switchUser, dumpUser, restoreUser, usersSaved, dropUserData, pinHash, wipeTry, allEntries, askPersist, deleteAudio, deleteEntry, deletePhoto, entriesOfDay, getAudio, getEntry, getPhoto, getSetting, putEntry, putSetting, saveAudio, savePhoto } from './store.js'
 import { blobToDataURL, shrinkPhoto } from './photo.js'
 import { h } from './dom.js'
 import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLines, recorderButton, weatherForm, weatherText } from './body.js'
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.20.0'
+const VERSION = '0.20.1'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1518,6 +1518,164 @@ function tideCard() {
     status, fileIn, h('label', { class: 'secondary-btn as-btn', for: 'tide-in', text: '潮位表を読み込む' }), nameRow, msg)
 }
 
+// ---------- スマホの引っ越し(v0.20.1。本人「スマホ変えたときのデータ引継ぎ」「複数人の時は選択式」) ----------
+// 引っ越し用ファイル = 選んだ人の置き場まるごと(記録・写真・録音・ボタンなどの設定)を、合言葉の鍵(PBKDF2 → AES-GCM)で包んだもの。
+// LINE やメールで送っても、合言葉を知らない人には開けない(ルール3: 鍵をかけずに外へ出さない)。同期の鍵は入らない。
+const MOVE_APP = 'diary-move'
+const bytesToB64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s) }
+const b64ToBytes = (b) => { const bin = atob(b); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u }
+async function saveTextFile(name, text) {
+  if (isNativeApp()) return shareFileNative(name, text)
+  const blob = new Blob([text], { type: 'application/json' })
+  const a = h('a', { href: URL.createObjectURL(blob), download: name })
+  document.body.append(a); a.click()
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500)
+}
+async function buildMoveFile(ids, pass) {
+  const users = await listUsers()
+  const people = []
+  for (const u of users.filter(u => ids.includes(u.id))) {
+    const d = await dumpUser(u.id)
+    const photos = []; for (const p of d.photos) photos.push({ ...p, blob: await blobToDataURL(p.blob) })
+    const audios = []; for (const a of d.audios) audios.push({ ...a, blob: await blobToDataURL(a.blob) })
+    people.push({ meta: u, entries: d.entries, photos, audios, settings: d.settings })
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify({ people }))
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const sealed = await S.seal(await S.deriveKey(pass, salt), salt, bytes)
+  return { text: JSON.stringify({ app: MOVE_APP, format: 1, version: VERSION, exported_at: stamp(new Date()), enc: bytesToB64(sealed) }), people }
+}
+async function openMoveFile(file, pass) {
+  let raw
+  try { raw = JSON.parse(await file.text()) } catch { throw new Error('引っ越し用のファイルではないようです') }
+  if (raw && raw.app === 'diary') throw new Error('これはふつうの書き出しファイルです。下の「ファイルから読み込む」で読み込んでください')
+  if (!raw || raw.app !== MOVE_APP || typeof raw.enc !== 'string') throw new Error('引っ越し用のファイルではないようです')
+  const u = b64ToBytes(raw.enc)
+  let plain
+  try { plain = await S.open(await S.deriveKey(pass, S.saltOf(u)), u) }
+  catch (err) { throw new Error(String(err && err.message) === 'WRONG_PASS' ? '合言葉が違います' : '開けませんでした(ファイルが壊れているかもしれません)') }
+  const data = JSON.parse(new TextDecoder().decode(plain))
+  return { exported_at: raw.exported_at || '', people: Array.isArray(data.people) ? data.people.filter(p => p && p.meta && typeof p.meta.id === 'string') : [] }
+}
+async function restoreMove(people) {
+  const out = []
+  for (const p of people) {
+    const conv = (list) => (list || []).map(x => { try { return { ...x, blob: dataURLToBlob(x.blob) } } catch { return null } }).filter(Boolean)
+    const n = await restoreUser(p.meta.id, { entries: p.entries, photos: conv(p.photos), audios: conv(p.audios), settings: p.settings })
+    out.push({ name: p.meta.name, ...n })
+  }
+  // 使う人の一覧: この端末でまだ保存していなければファイルのとおりに。あれば、いない人だけ足す
+  const metas = people.map(p => ({ id: p.meta.id, name: String(p.meta.name || '').slice(0, 12) || 'わたし', icon: p.meta.icon || '🙂', ...(p.meta.pin ? { pin: p.meta.pin } : {}), ...(p.meta.askOnOpen ? { askOnOpen: true } : {}) }))
+  let list = await usersSaved() ? await listUsers() : []
+  for (const m of metas) if (!list.some(u => u.id === m.id)) list.push(m)
+  if (!list.some(u => u.id === 'main')) list.unshift({ id: 'main', name: 'わたし', icon: '🙂' })
+  list.sort((a, b) => (a.id === 'main' ? -1 : b.id === 'main' ? 1 : 0))
+  await saveUsers(list.slice(0, 8))
+  return out
+}
+const MOVE_STEPS = ['前のスマホ: 「バックアップ」→「📦 引っ越し用ファイルを作る」で、合言葉を決めてファイルを作る', 'そのファイルを新しいスマホへ送る(LINE の自分あて・メール・グーグルドライブなど)', '新しいスマホ: 日記を入れて開き、「📲 前のスマホから引っ越す」でファイルを選び、同じ合言葉を入れる']
+const moveSteps = () => h('ol', { class: 'mvx-steps' }, ...MOVE_STEPS.map(t => h('li', { text: t })))
+
+// 引っ越し用ファイルを作る(バックアップの画面)
+function moveExportCard() {
+  const box = h('div', { class: 'mvx-people' })
+  const msg = h('p', { class: 'bk-msg', 'aria-live': 'polite' })
+  const p1 = h('input', { type: 'password', class: 'input', autocomplete: 'new-password', placeholder: '合言葉(6文字以上)', 'aria-label': '合言葉' })
+  const p2 = h('input', { type: 'password', class: 'input', autocomplete: 'new-password', placeholder: 'もう一度', 'aria-label': '合言葉をもう一度' })
+  const btn = h('button', { type: 'button', class: 'primary-btn', text: '📦 引っ越し用ファイルを作る' })
+  let users = [], picks = new Map()
+  ;(async () => {
+    users = await listUsers()
+    if (users.length < 2) { picks.set(USER_ID, { on: true }); return }
+    box.append(h('p', { class: 'ed-label', text: '入れる人を選んでください' }))
+    for (const u of users) {
+      const st = { on: true, pin: null }
+      picks.set(u.id, st)
+      const needPin = u.pin && u.id !== USER_ID
+      const pinIn = needPin ? h('input', { type: 'password', inputmode: 'numeric', maxlength: '4', class: 'input mvx-pin', placeholder: `${u.name}さんの番号`, 'aria-label': `${u.name}さんの番号` }) : null
+      if (pinIn) { st.pin = pinIn; pinIn.hidden = false }
+      const chk = h('input', { type: 'checkbox', checked: true })
+      chk.addEventListener('change', () => { st.on = chk.checked; if (pinIn) pinIn.hidden = !chk.checked })
+      box.append(h('div', { class: 'mvx-row' }, h('label', { class: 'mvx-who' }, chk, h('span', { text: `${u.icon} ${u.name}${u.id === USER_ID ? '(いまの人)' : ''}` })), pinIn))
+    }
+  })()
+  btn.addEventListener('click', async () => {
+    msg.className = 'bk-msg err'
+    const ids = [...picks].filter(([, v]) => v.on).map(([k]) => k)
+    if (!ids.length) { msg.textContent = '入れる人を1人以上選んでください'; return }
+    for (const u of users.filter(u => ids.includes(u.id) && u.pin && u.id !== USER_ID)) {
+      const v = picks.get(u.id).pin.value.trim()
+      if (await pinHash(u.id, v) !== u.pin) { msg.textContent = `${u.name}さんの番号が違います(入れるには、その人の番号が要ります)`; return }
+    }
+    if (p1.value.length < 6) { msg.textContent = '合言葉は6文字以上にしてください'; return }
+    if (p1.value !== p2.value) { msg.textContent = '2つの合言葉が違います'; return }
+    btn.disabled = true; msg.className = 'bk-msg'; msg.textContent = '作っています…(写真が多いと少しかかります)'
+    try {
+      const r = await buildMoveFile(ids, p1.value)
+      await saveTextFile(`diary-hikkoshi-${dayOf(new Date())}.json`, r.text)
+      msg.className = 'bk-msg ok'
+      msg.textContent = `${r.people.map(p => `${p.meta.name}(記録 ${p.entries.length}件・写真 ${p.photos.length}枚)`).join('、')} のファイルを作りました。合言葉は忘れないでください(なくすと開けません)。`
+      p1.value = ''; p2.value = ''
+    } catch (err) { msg.className = 'bk-msg err'; msg.textContent = `作れませんでした: ${err.message || err}` }
+    finally { btn.disabled = false }
+  })
+  return h('section', { class: 'bk-card' },
+    h('h3', { text: '📦 スマホの引っ越し' }),
+    h('p', { text: '機種変更のときに使います。記録・写真・録音・ボタン・場所をまるごと1つのファイルにして、合言葉の鍵をかけます。' }),
+    moveSteps(), box,
+    h('div', { class: 'mvx-pass' }, p1, p2),
+    h('p', { class: 'hint', text: '合言葉は、新しいスマホで開くときに使います。メモしておいてください。' }),
+    btn, msg,
+    h('div', { class: 'mvx-in' }, h('p', { class: 'ed-label', text: '引っ越し用ファイルを受け取った側' }), moveImportBox()))
+}
+// 引っ越し用ファイルを読み込む(ようこその画面とバックアップの画面)
+function moveImportBox(onStart) {
+  const wrap = h('div', { class: 'mvx-imp' })
+  const msg = h('p', { class: 'bk-msg', 'aria-live': 'polite' })
+  const id = `mvx-file-${Math.random().toString(36).slice(2, 7)}`
+  const fileIn = h('input', { type: 'file', accept: '.json,application/json', class: 'visually-hidden', id, 'aria-label': '引っ越し用ファイルを選ぶ' })
+  const fname = h('p', { class: 'hint' })
+  const pass = h('input', { type: 'password', class: 'input', autocomplete: 'off', placeholder: '前のスマホで決めた合言葉', 'aria-label': '合言葉' })
+  const openBtn = h('button', { type: 'button', class: 'primary-btn', text: 'ファイルを開く' })
+  const pickBox = h('div')
+  let file = null
+  fileIn.addEventListener('change', () => { file = fileIn.files[0] || null; fname.textContent = file ? `選んだファイル: ${file.name}` : ''; if (onStart) onStart() })
+  openBtn.addEventListener('click', async () => {
+    msg.className = 'bk-msg err'
+    if (!file) { msg.textContent = '先にファイルを選んでください'; return }
+    if (!pass.value) { msg.textContent = '合言葉を入れてください'; return }
+    openBtn.disabled = true; msg.className = 'bk-msg'; msg.textContent = '開いています…'
+    let pk
+    try { pk = await openMoveFile(file, pass.value) } catch (err) { msg.className = 'bk-msg err'; msg.textContent = err.message || String(err); openBtn.disabled = false; return }
+    openBtn.disabled = false; msg.textContent = ''
+    if (!pk.people.length) { msg.className = 'bk-msg err'; msg.textContent = 'このファイルにはだれも入っていません'; return }
+    const on = new Set(pk.people.map(p => p.meta.id))
+    const go = h('button', { type: 'button', class: 'primary-btn', text: '📲 引っ越す' })
+    go.addEventListener('click', async () => {
+      const sel = pk.people.filter(p => on.has(p.meta.id))
+      if (!sel.length) { msg.className = 'bk-msg err'; msg.textContent = '1人以上選んでください'; return }
+      go.disabled = true; msg.className = 'bk-msg'; msg.textContent = '入れています…'
+      try {
+        const r = await restoreMove(sel)
+        msg.className = 'bk-msg ok'
+        msg.textContent = `引っ越しました: ${r.map(x => `${x.name}(記録 ${x.entries}件・写真 ${x.photos}枚)`).join('、')}。開き直します…`
+        setTimeout(() => location.reload(), 1800)
+      } catch (err) { go.disabled = false; msg.className = 'bk-msg err'; msg.textContent = `入れられませんでした: ${err.message || err}` }
+    })
+    pickBox.replaceChildren(
+      h('p', { class: 'ed-label', text: `${pk.exported_at ? pk.exported_at.slice(0, 16).replace('T', ' ') + ' に作ったファイル。' : ''}引っ越す人を選んでください` }),
+      ...pk.people.map(p => {
+        const chk = h('input', { type: 'checkbox', checked: true })
+        chk.addEventListener('change', () => { if (chk.checked) on.add(p.meta.id); else on.delete(p.meta.id) })
+        return h('div', { class: 'mvx-row' }, h('label', { class: 'mvx-who' }, chk, h('span', { text: `${p.meta.icon || '🙂'} ${p.meta.name}(記録 ${p.entries.length}件・写真 ${p.photos.length}枚)` })))
+      }),
+      h('p', { class: 'hint', text: 'この端末に今ある記録は消しません。同じ記録は新しいほうを残します。' }),
+      go)
+  })
+  wrap.append(fileIn, h('label', { class: 'secondary-btn as-btn', for: id, text: 'ファイルを選ぶ' }), fname, pass, openBtn, pickBox, msg)
+  return wrap
+}
+
 function openBackup() {
   const sheet = $('#sheet')
   const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
@@ -1580,6 +1738,7 @@ function openBackup() {
     h('div', { class: 'sheet-top' }, h('h2', { text: 'バックアップ' }),
       h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
     h('div', { class: 'sheet-body' },
+      moveExportCard(),
       h('section', { class: 'bk-card' },
         h('h3', { text: 'ファイルに書き出す' }),
         h('p', { text: '記録を文章・写真・録音ごと1つのファイル(.json)にします。ときどき書き出して、PC などに移しておくと安心です。' }),
@@ -1995,7 +2154,11 @@ async function maybeFirstPreset() {
       h('div', { class: 'sheet-body' },
         h('p', { class: 'pz-lead', text: 'あなたの毎日に近いのは?' }),
         h('p', { class: 'hint', text: '選んだ形でボタンを並べます。次の画面で、使わないボタンを外せます。' }),
-        presetCards(null, step2))))
+        presetCards(null, step2),
+        h('section', { class: 'mvx-welcome' },
+          h('h3', { text: '📲 前のスマホから引っ越す' }),
+          h('p', { class: 'hint', text: '前のスマホで作った「引っ越し用ファイル」と合言葉があれば、記録もボタンもそのまま入ります。' }),
+          moveImportBox()))))
   }
   // 2. v0.19.8: ひな形のボタンを全部チェック済みで見せ、使わないものを外してもらう(本人「どのボタンを使うのか選択してもらう」)
   const step2 = (p) => {

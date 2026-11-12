@@ -180,3 +180,48 @@ export async function askPersist() {
   } catch { /* 頼めなくても動く */ }
   return false
 }
+
+// ---------- スマホの引っ越し(v0.20.1) ----------
+// 人ごとの置き場をまるごと読み出す / 書き戻す。中身の形は app.js(引っ越し用ファイル)が決める。
+// 同期の鍵(syncKey)は取り出せない形なので入れない。使う人の一覧(users)は別に扱う。
+const SKIP_SETTINGS = new Set(['syncKey', 'users'])
+const allOf = (db, store) => new Promise((resolve, reject) => {
+  const r = db.transaction([store], 'readonly').objectStore(store).getAll()
+  r.onsuccess = () => resolve(r.result || []); r.onerror = () => reject(r.error)
+})
+export async function dumpUser(id) {
+  const same = id === USER_ID
+  const db = same ? await open() : await openDb(dbNameOf(id))
+  try {
+    const settings = (await allOf(db, 'settings')).filter(s => !SKIP_SETTINGS.has(s.key) && !(typeof CryptoKey !== 'undefined' && s.value instanceof CryptoKey))
+    return { entries: await allOf(db, 'entries'), photos: await allOf(db, 'photos'), audios: await allOf(db, 'audios'), settings }
+  } finally { if (!same) db.close() }
+}
+// 今あるものは消さない: 記録は、ないか、ファイルのほうが新しければ入れる。写真・録音は、ないものだけ。
+// 設定は、ないものだけ(この人の記録がまだ0件なら、ファイルの設定で入れ替える)
+export async function restoreUser(id, d) {
+  const same = id === USER_ID
+  const db = same ? await open() : await openDb(dbNameOf(id))
+  try {
+    const have = new Map((await allOf(db, 'entries')).map(e => [e.id, e]))
+    const fresh = have.size === 0
+    const haveSet = new Set((await allOf(db, 'settings')).map(s => s.key))
+    const haveP = new Set((await allOf(db, 'photos')).map(p => p.id))
+    const haveA = new Set((await allOf(db, 'audios')).map(a => a.id))
+    const n = { entries: 0, photos: 0, audios: 0 }
+    await new Promise((resolve, reject) => {
+      const t = db.transaction(['entries', 'photos', 'audios', 'settings'], 'readwrite')
+      for (const e of d.entries || []) {
+        const now = have.get(e.id)
+        if (!now || (e.updated_at || e.at) > (now.updated_at || now.at)) { t.objectStore('entries').put(e); n.entries++ }
+      }
+      for (const p of d.photos || []) if (!haveP.has(p.id)) { t.objectStore('photos').put(p); n.photos++ }
+      for (const a of d.audios || []) if (!haveA.has(a.id)) { t.objectStore('audios').put(a); n.audios++ }
+      for (const s of d.settings || []) if (!SKIP_SETTINGS.has(s.key) && (fresh || !haveSet.has(s.key))) t.objectStore('settings').put(s)
+      t.oncomplete = resolve; t.onerror = () => reject(t.error); t.onabort = () => reject(t.error)
+    })
+    return n
+  } finally { if (!same) db.close() }
+}
+// 使う人の一覧が、この端末でまだ一度も保存されていないか(はじめての端末)
+export async function usersSaved() { return !!(await baseSetting('users')) }

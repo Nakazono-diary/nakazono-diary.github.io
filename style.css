@@ -598,3 +598,17 @@ button, input, textarea { font: inherit; color: inherit; }
 .uv-title { margin: 0; font-size: 17px; font-weight: 800; }
 .uv-text { margin: 0 0 4px; font-size: 14px; color: var(--muted); }
 .uv-card .primary-btn, .uv-card .secondary-btn { flex: none; min-height: 52px; }
+
+/* v0.20.1 スマホの引っ越し */
+.mvx-steps { margin: 6px 0 10px; padding-left: 1.4em; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.mvx-people { display: grid; gap: 6px; margin: 8px 0; }
+.mvx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mvx-who { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 16px; font-weight: 600; flex: 1; min-width: 180px; }
+.mvx-who input { width: 22px; height: 22px; }
+.mvx-pin { width: 160px; }
+.mvx-pass { display: grid; gap: 8px; margin-top: 8px; }
+.mvx-imp { display: grid; gap: 8px; }
+.mvx-in { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line2); }
+.mvx-welcome { margin-top: 24px; padding: 14px; border: 1px solid var(--line2); border-radius: 14px; background: var(--surface); }
+.mvx-welcome h3 { margin: 0 0 4px; font-size: 16px; }
+.mvx-imp .primary-btn, .mvx-imp .secondary-btn { width: 100%; flex: none; }
