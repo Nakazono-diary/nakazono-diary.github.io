@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.20.3'
+const VERSION = '0.20.4'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1827,7 +1827,7 @@ async function prtMdPage(d, o) {
     h('p', { class: 'prt-md-note', text: sm }),
     h('div', { class: 'prt-md-grid' },
       h('div', { class: 'prt-md-rows' }, ...rows.map(r => h('div', { class: 'prt-md-row' + (r.bar ? ' bar' : '') },
-        h('span', { class: 'prt-md-num', text: String(r.hh) }),
+        h('span', { class: 'prt-md-num', text: r.hh >= 8 ? String(r.hh) : '' })   // 番号はノートと同じく8から(本人),
         h('span', { class: 'prt-md-txt', text: r.items.join('　') })))),
       health.length ? h('div', { class: 'prt-md-side' }, h('p', { class: 'prt-md-sidet', text: '今日の体調' }), ...health.map(t => h('p', { text: t }))) : null),
     ...texts.map(t => h('p', { class: 'prt-md-free', text: t })),
