@@ -10,11 +10,30 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.0'
+const VERSION = '0.21.1'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
-const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'play', label: '遊び' }, { key: 'errand', label: '用事' }, { key: 'pet', label: 'ペット' }, { key: 'go', label: '外出・移動' }, { key: 'body', label: '体調・天気' }]
+const BASE_TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'play', label: '遊び' }, { key: 'errand', label: '用事' }, { key: 'pet', label: 'ペット' }, { key: 'go', label: '外出・移動' }, { key: 'body', label: '体調・天気' }]
+// v0.21.1 タブの設定(本人「タブの変更も入れよう」「(自分のタブ・ボタン設定にも)両方とも実装で」)。settings の tabs = [{ key, label, hidden }](並び順)。
+// 名前を変える・隠す(hidden)・並べ替え・自分のタブ(key は t-…、MAX_OWN_TABS まで)。TABS はいつも全部のタブ(隠したものも)
+const MAX_OWN_TABS = 3
+let TABS = BASE_TABS.map(t => ({ ...t }))
+function cleanTabs(a) {
+  const out = []
+  for (const t of Array.isArray(a) ? a : []) {
+    if (!t || typeof t.key !== 'string' || out.some(x => x.key === t.key)) continue
+    const base = BASE_TABS.find(b => b.key === t.key)
+    if (!base && !/^t-[\w-]{1,40}$/.test(t.key)) continue
+    const label = typeof t.label === 'string' && t.label.trim() ? t.label.trim().slice(0, 10) : (base ? base.label : '')
+    if (!label) continue
+    out.push({ key: t.key, label, ...(t.hidden ? { hidden: true } : {}) })
+  }
+  for (const b of BASE_TABS) if (!out.some(x => x.key === b.key)) out.push({ ...b })   // あとから増えたタブは最後に
+  return out.filter((t, i) => BASE_TABS.some(b => b.key === t.key) || out.slice(0, i).filter(x => !BASE_TABS.some(b => b.key === x.key)).length < MAX_OWN_TABS)
+}
+async function saveTabs(list) { TABS = cleanTabs(list); await putSetting('tabs', TABS) }
+const tabLabel = (key) => (TABS.find(t => t.key === key) || {}).label || ''
 const DEFAULT_BUTTONS = [
   { kind: 'wake', label: '起床', icon: '☀️', tab: 'flow', askPlace: true },
   { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true, askPlace: true, span: true },
@@ -245,6 +264,7 @@ async function loadLists() {
     const sy = await getSetting('symptoms'); if (Array.isArray(sy)) LISTS.symptoms = sy
     TIDE = await getSetting('tide')
     const w = cleanWiths(await getSetting('withs')); if (w.length) WITH_OPTS = w
+    TABS = cleanTabs(await getSetting('tabs'))
   } catch { /* なくても動く */ }
 }
 // ボタンの見た目以外に持つもの(保存・読み込みで残す)
@@ -920,10 +940,11 @@ function initDock() {
 const TAB_KEY = 'diary.tab'
 function currentTab() { try { return localStorage.getItem(TAB_KEY) || 'flow' } catch { return 'flow' } }
 function buildButtons() {
-  const tab = TABS.some(t => t.key === currentTab()) ? currentTab() : 'flow'
+  // v0.20.8: ペットのタブは、ペットのボタンがあるときだけ出す。v0.21.1: 隠したタブは出さない
+  const shown = TABS.filter(t => !t.hidden && (t.key !== 'pet' || BUTTONS.some(b => b.tab === 'pet')))
+  const tab = shown.some(t => t.key === currentTab()) ? currentTab() : (shown[0] || TABS[0]).key
   const bar = $('#tabs')
-  // v0.20.8: ペットのタブは、ペットのボタンがあるときだけ出す
-  bar.replaceChildren(...TABS.filter(t => t.key !== 'pet' || BUTTONS.some(b => b.tab === 'pet')).map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === tab ? 'true' : 'false',
+  bar.replaceChildren(...shown.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === tab ? 'true' : 'false',
     text: t.label, onclick: () => { try { localStorage.setItem(TAB_KEY, t.key) } catch { /* */ } setDockDown(false); buildButtons() } })))
   const box = $('#buttons')
   const list = BUTTONS.filter(b => b.tab === tab)
@@ -1528,7 +1549,7 @@ async function exportFile(btn) {
       if (a) audios[aid] = { mime: a.mime, sec: a.sec, created_at: a.created_at, data: await blobToDataURL(a.blob) }
     }
     const data = { app: 'diary', format: 3, version: VERSION, exported_at: stamp(new Date()), entries, photos, audios, buttons: BUTTONS,
-      lists: { meds: LISTS.meds, symptoms: LISTS.symptoms, withs: WITH_OPTS }, places: PLACES }
+      lists: { meds: LISTS.meds, symptoms: LISTS.symptoms, withs: WITH_OPTS, tabs: TABS }, places: PLACES }
     const name = `diary-${dayOf(new Date())}.json`
     const text = JSON.stringify(data, null, 1)
     if (isNativeApp()) await shareFileNative(name, text)
@@ -1567,7 +1588,7 @@ async function planImport(file) {
   // ボタン: こちらでまだ一度もボタンを変えていなければ(機種変更など)、ファイルの並びをそのまま使う。
   // 変えていれば、ファイルにあってこちらにないボタン(自分で足したボタンなど)だけ足す。
   if (Array.isArray(data.buttons)) {
-    const ok = data.buttons.filter(b => b && typeof b.kind === 'string' && typeof b.label === 'string' && b.label.trim() && TABS.some(t => t.key === b.tab))
+    const ok = data.buttons.filter(b => b && typeof b.kind === 'string' && typeof b.label === 'string' && b.label.trim() && (TABS.some(t => t.key === b.tab) || cleanTabs((data.lists || {}).tabs).some(t => t.key === b.tab)))
       .map(b => ({ kind: b.kind, label: b.label.trim().slice(0, 20), icon: typeof b.icon === 'string' ? b.icon.slice(0, 8) : '⭐', tab: b.tab, ...btnExtra(b) }))
     const mine = await getSetting('buttons')
     if (!mine && ok.length) {
@@ -1604,6 +1625,7 @@ async function planImport(file) {
     const add = (Array.isArray(L[key]) ? L[key] : []).filter(x => typeof x === 'string' && x.trim() && !LISTS[key].includes(x))
     if (add.length) plan.lists[key] = add
   }
+  plan.tabs = cleanTabs(L.tabs).filter(t => !TABS.some(x => x.key === t.key))   // v0.21.1: 自分のタブは、ないものだけ足す
   plan.withs = cleanWiths(L.withs).filter(o => !WITH_OPTS.some(x => x.key === o.key))   // だれとは、ないもの(同じ key がないもの)だけ足す
   // 登録した場所は、ないもの(同じ id がないもの)だけ足す
   plan.places = (Array.isArray(data.places) ? data.places : []).filter(p => p && typeof p.id === 'string' && typeof p.name === 'string' && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !PLACES.some(x => x.id === p.id))
@@ -1640,6 +1662,7 @@ async function applyImport(plan) {
   }
   for (const [key, add] of Object.entries(plan.lists || {})) await LISTS.save(key, [...LISTS[key], ...add])
   if (plan.withs && plan.withs.length) await saveWiths([...WITH_OPTS, ...plan.withs])
+  if (plan.tabs && plan.tabs.length) await saveTabs([...TABS, ...plan.tabs])
   if (plan.places && plan.places.length) await savePlaces([...PLACES, ...plan.places])
   return photos
 }
@@ -2660,6 +2683,7 @@ function openButtonSettings() {
   let list = BUTTONS.map(b => ({ ...b }))
   let pickFor = null          // 絵を選んでいるボタンの kind
   // v0.17.3: 本人「ボタン設定は項目別に表示を」→ 上のタブで1つずつ見せる(最初は、いま下で開いているタブ)
+  let tabsEd = TABS.map(t => ({ ...t }))   // タブの設定(保存するまで決まらない。v0.21.1)
   let showTab = TABS.some(t => t.key === currentTab()) ? currentTab() : TABS[0].key
   let candOpen = false        // 候補の一覧を開いているか(v0.18.1)
   let withs = WITH_OPTS.map(o => ({ ...o }))   // だれとの一覧(保存するまで決まらない。v0.18.6)
@@ -2684,12 +2708,16 @@ function openButtonSettings() {
     if (pzOpen) { pzView(); return }
     body.replaceChildren(h('p', { class: 'hint', text: 'ボタンの名前・絵・並びを変えられます。消しても、そのボタンで記録した分は残ります。最後に「保存する」を押してください。' }),
       h('div', { class: 'tabs bs-tabs', role: 'tablist', 'aria-label': 'どのタブのボタンを見るか' },
-        ...TABS.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === showTab ? 'true' : 'false',
-          text: `${t.label} ${list.filter(b => b.tab === t.key).length}`, onclick: () => { showTab = t.key; pickFor = null; candOpen = false; paint(); body.scrollTop = 0 } })),
+        ...tabsEd.map(t => h('button', { type: 'button', role: 'tab', class: 'tab' + (t.hidden ? ' bs-tab-hidden' : ''), 'aria-selected': t.key === showTab ? 'true' : 'false',
+          text: `${t.label || '(名前なし)'} ${list.filter(b => b.tab === t.key).length}`, onclick: () => { showTab = t.key; pickFor = null; candOpen = false; paint(); body.scrollTop = 0 } })),
         h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': showTab === '__with' ? 'true' : 'false', text: `👫 だれと ${withs.length}`,
-          onclick: () => { showTab = '__with'; pickFor = null; candOpen = false; paint(); body.scrollTop = 0 } })))
+          onclick: () => { showTab = '__with'; pickFor = null; candOpen = false; paint(); body.scrollTop = 0 } }),
+        h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': showTab === '__tabs' ? 'true' : 'false', text: '🗂 タブ',
+          onclick: () => { showTab = '__tabs'; pickFor = null; candOpen = false; paint(); body.scrollTop = 0 } })))
     if (showTab === '__with') { body.append(withEditor()); body.append(msg); return }
-    for (const t of TABS.filter(x => x.key === showTab)) {
+    if (showTab === '__tabs') { body.append(tabEditor()); body.append(msg); return }
+    if (!tabsEd.some(x => x.key === showTab)) showTab = tabsEd[0].key
+    for (const t of tabsEd.filter(x => x.key === showTab)) {
       const same = list.filter(b => b.tab === t.key)
       const sec = h('section', { class: 'bs-tab' })
       const groups = CANDIDATES.filter(g => g.tab === t.key)
@@ -2749,9 +2777,9 @@ function openButtonSettings() {
         const ask = h('input', { type: 'checkbox' })
         ask.checked = !!b.askMove
         ask.addEventListener('change', () => { b.askMove = ask.checked })
-        const tabSel = h('select', { class: 'input bs-tabsel', 'aria-label': 'タブを変える' }, ...TABS.map(x => h('option', { value: x.key, text: x.label })))
+        const tabSel = h('select', { class: 'input bs-tabsel', 'aria-label': 'タブを変える' }, ...tabsEd.map(x => h('option', { value: x.key, text: x.label + (x.hidden ? '(隠しています)' : '') })))
         tabSel.value = b.tab
-        tabSel.addEventListener('change', () => { if (list.filter(x => x.tab === tabSel.value).length >= MAX_PER_TAB) { tabSel.value = b.tab; showToast(`そのタブは ${MAX_PER_TAB}個でいっぱいです`); return } b.tab = tabSel.value; paint(); showToast(`「${b.label}」を「${(TABS.find(x => x.key === b.tab) || {}).label}」へ移しました`) })
+        tabSel.addEventListener('change', () => { if (list.filter(x => x.tab === tabSel.value).length >= MAX_PER_TAB) { tabSel.value = b.tab; showToast(`そのタブは ${MAX_PER_TAB}個でいっぱいです`); return } b.tab = tabSel.value; paint(); showToast(`「${b.label}」を「${(tabsEd.find(x => x.key === b.tab) || {}).label}」へ移しました`) })
         const row = h('div', { class: 'bs-row' },
           h('button', { type: 'button', class: 'bs-icon' + colorCls(b), 'aria-label': `${b.label}の絵を変える`, text: b.icon, onclick: () => { pickFor = pickFor === b.kind ? null : b.kind; paint() } }),
           name,
@@ -2835,6 +2863,49 @@ function openButtonSettings() {
   let pzOn = null
   let newPreset = PRESET
   // だれとの一覧の編集(v0.18.6)
+  // v0.21.1 タブの設定: 名前・使う(隠す)・並び・自分のタブ(3つまで)
+  const tabEditor = () => {
+    const sec = h('section', { class: 'bs-tab' })
+    sec.append(h('p', { class: 'hint', text: 'タブの名前を変えたり、使わないタブを隠したり、並べ替えたりできます。隠したタブのボタンは消えません(下に出なくなるだけ)。自分のタブは3つまで作れます。' }))
+    const own = tabsEd.filter(t => !BASE_TABS.some(b => b.key === t.key))
+    tabsEd.forEach((t, i) => {
+      const base = BASE_TABS.find(b => b.key === t.key)
+      const name = h('input', { class: 'input bs-name', value: t.label, maxlength: '10', placeholder: base ? base.label : 'タブの名前', 'aria-label': `${t.label || 'タブ'}の名前` })
+      name.addEventListener('input', () => { t.label = name.value })
+      const use = h('input', { type: 'checkbox' }); use.checked = !t.hidden
+      use.addEventListener('change', () => {
+        if (!use.checked && tabsEd.filter(x => !x.hidden).length <= 1) { use.checked = true; showToast('1つは使うタブを残してください'); return }
+        if (use.checked) delete t.hidden; else t.hidden = true; paint()
+      })
+      const mv = (d) => { const j = i + d; if (j < 0 || j >= tabsEd.length) return; [tabsEd[i], tabsEd[j]] = [tabsEd[j], tabsEd[i]]; paint() }
+      const n = list.filter(b => b.tab === t.key).length
+      sec.append(h('div', { class: 'bs-row tb-row' + (t.hidden ? ' tb-hidden' : '') },
+        h('label', { class: 'tb-use', title: '使う' }, use, h('span', { text: t.hidden ? '隠す' : '使う' })),
+        name,
+        h('div', { class: 'bs-ops' },
+          h('button', { type: 'button', class: 'bs-op', 'aria-label': '上へ', text: '↑', disabled: i === 0, onclick: () => mv(-1) }),
+          h('button', { type: 'button', class: 'bs-op', 'aria-label': '下へ', text: '↓', disabled: i === tabsEd.length - 1, onclick: () => mv(1) }),
+          base ? null : h('button', { type: 'button', class: 'bs-op del', 'aria-label': `${t.label}を消す`, text: '消す', onclick: () => {
+            // 自分のタブを消すときは、中のボタンを「すること」へ移す(ボタンは消さない)
+            const before = tabsEd.map(x => ({ ...x })), moved = list.filter(b => b.tab === t.key)
+            tabsEd = tabsEd.filter(x => x !== t); moved.forEach(b => { b.tab = 'do' }); paint()
+            showToast(`タブ「${t.label}」を消しました${moved.length ? `(ボタン ${moved.length}個は「${tabLabelEd('do')}」へ)` : ''}(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { tabsEd = before; moved.forEach(b => { b.tab = t.key }); paint() } }])
+          } })),
+        h('div', { class: 'bs-sub tb-sub', text: `ボタン ${n}個${base && t.label !== base.label ? `・もとの名前「${base.label}」` : ''}` })))
+    })
+    sec.append(h('button', { type: 'button', class: 'secondary-btn bs-add', disabled: own.length >= MAX_OWN_TABS,
+      text: own.length >= MAX_OWN_TABS ? `自分のタブは ${MAX_OWN_TABS}つまでです` : '＋ 自分のタブを作る', onclick: () => {
+        tabsEd.push({ key: 't-' + newId().slice(0, 8), label: '' }); paint()
+        requestAnimationFrame(() => { const ins = body.querySelectorAll('.tb-row .bs-name'); const last = ins[ins.length - 1]; if (last) last.focus() })
+      } }))
+    if (JSON.stringify(tabsEd.map(t => [t.key, t.label, !!t.hidden])) !== JSON.stringify(BASE_TABS.map(t => [t.key, t.label, false])))
+      sec.append(h('button', { type: 'button', class: 'link-btn bs-reset', text: 'タブを最初の形に戻す(自分のタブのボタンは「すること」へ)', onclick: () => {
+        const own2 = tabsEd.filter(x => !BASE_TABS.some(b => b.key === x.key)).map(x => x.key)
+        list.forEach(b => { if (own2.includes(b.tab)) b.tab = 'do' })
+        tabsEd = BASE_TABS.map(x => ({ ...x })); paint() } }))
+    return sec
+  }
+  const tabLabelEd = (key) => (tabsEd.find(t => t.key === key) || {}).label || ''
   const withEditor = () => {
     const moveW = (o, d) => { const i = withs.indexOf(o), j = i + d; if (j < 0 || j >= withs.length) return; [withs[i], withs[j]] = [withs[j], withs[i]]; paint() }
     const sec = h('section', { class: 'bs-tab' }, h('p', { class: 'hint', text: '遊びなどの記録に付ける「だれと」の一覧です。名前の人を足してもかまいません(この端末と、鍵をかけた同期の中だけ)。消しても、付けた記録はそのまま残ります。' }))
@@ -2861,6 +2932,9 @@ function openButtonSettings() {
     return sec
   }
   const save = async () => {
+    tabsEd.forEach(t => { t.label = (t.label || '').trim() })
+    if (tabsEd.some(t => !t.label && !BASE_TABS.some(b => b.key === t.key))) { showTab = '__tabs'; paint(); msg.textContent = '名前が空のタブがあります'; return }
+    await saveTabs(tabsEd)
     withs.forEach(o => { o.label = (o.label || '').trim() })
     if (withs.some(o => !o.label)) { showTab = '__with'; paint(); msg.textContent = '名前が空の「だれと」があります'; return }
     await saveWiths(withs.map(o => ({ key: o.key, label: o.label, icon: o.icon })))
@@ -2871,7 +2945,7 @@ function openButtonSettings() {
     close()
     showToast('ボタンを保存しました')
   }
-  const snapS = () => JSON.stringify([list, withs, newPreset])
+  const snapS = () => JSON.stringify([list, withs, newPreset, tabsEd])
   const firstS = snapS()
   sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'ボタン設定' },
     h('div', { class: 'sheet-top' }, h('h2', { text: 'ボタン設定' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: () => guardedClose(snapS, firstS, save, close) })),
@@ -3201,6 +3275,7 @@ async function runSync(report = (t) => showToast(t)) {
       if (add.length) await LISTS.save(key, [...LISTS[key], ...add])
     }
     { const add = cleanWiths((rs.lists || {}).withs).filter(o => !WITH_OPTS.some(x => x.key === o.key)); if (add.length) await saveWiths([...WITH_OPTS, ...add]) }
+    { const add = cleanTabs((rs.lists || {}).tabs).filter(t => !TABS.some(x => x.key === t.key)); if (add.length) await saveTabs([...TABS, ...add]) }   // v0.21.1 自分のタブ
     // 件名リスト(この版で使うときだけ。projects.js)
     const { got: gotK, note: pjNote } = await PJ.syncPull(rs, byName, (id) => S.download(token, id), (buf) => S.open(k.key, buf))
     if (rs.tide && !TIDE) { TIDE = rs.tide; await putSetting('tide', TIDE) }
@@ -3235,7 +3310,7 @@ async function runSync(report = (t) => showToast(t)) {
     const sentD = Object.keys(tombs).filter(id => !((remote && remote.tombs) || {})[id] && remoteBy.has(id)).length
     // 4. 本体(記録と設定)を、鍵をかけて置く
     const body = { app: 'diary-sync', format: 1, version: VERSION, saved_at: stamp(new Date()), entries: now, tombs, photoMeta, audioMeta,
-      settings: { buttons: await getSetting('buttons'), places: PLACES, lists: { meds: LISTS.meds, symptoms: LISTS.symptoms, withs: WITH_OPTS }, projects: PJ.data(), tide: TIDE } }
+      settings: { buttons: await getSetting('buttons'), places: PLACES, lists: { meds: LISTS.meds, symptoms: LISTS.symptoms, withs: WITH_OPTS, tabs: TABS }, projects: PJ.data(), tide: TIDE } }
     await S.upload(token, S.MAIN, await S.seal(k.key, salt, new TextEncoder().encode(JSON.stringify(body))), mainF && mainF.id)
 
     const next = { ...cfg, lastSync: stamp(new Date()) }
