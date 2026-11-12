@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.19.9'
+const VERSION = '0.20.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -911,6 +911,31 @@ function showToast(text, actions = []) {
 
 // ---------- 体調・天気の短い画面 ----------
 // カードを押したとき: 体調・天気の記録は短い画面、それ以外は書く・直す画面
+// v0.20.0: 保存忘れのお知らせ(本人「手直ししたときに保存をよく押し忘れる」)。
+// 直したところがあるまま「閉じる」を押したら聞く。'save' | 'discard' | 'back' を返す
+function askUnsaved(isNew = false) {
+  return new Promise((resolve) => {
+    const box = h('div', { class: 'uv-wrap', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': '保存していません' })
+    const done = (v) => { box.remove(); resolve(v) }
+    box.append(h('div', { class: 'uv-card' },
+      h('p', { class: 'uv-title', text: isNew ? '⚠️ まだ記録していません' : '⚠️ 直したところがまだ保存されていません' }),
+      h('p', { class: 'uv-text', text: 'このまま閉じると、入れたところは消えます。' }),
+      h('button', { type: 'button', class: 'primary-btn', text: isNew ? '記録して閉じる' : '保存して閉じる', onclick: () => done('save') }),
+      h('button', { type: 'button', class: 'secondary-btn', text: isNew ? '記録せずに閉じる' : '保存せずに閉じる', onclick: () => done('discard') }),
+      h('button', { type: 'button', class: 'link-btn', text: 'もどる(続けて直す)', onclick: () => done('back') })))
+    box.addEventListener('click', (ev) => { if (ev.target === box) done('back') })
+    document.body.append(box)
+    box.querySelector('.primary-btn').focus()
+  })
+}
+// snap() が開いたときと違えば聞いてから閉じる
+async function guardedClose(snap, first, save, close, isNew) {
+  if (snap() === first) return close()
+  const a = await askUnsaved(isNew)
+  if (a === 'save') return save()
+  if (a === 'discard') return close()
+}
+
 function openEntry(e) {
   const k = kindInfo(e.kind) || {}
   if ((k.form === 'health' && e.health !== undefined) || (k.form === 'weather' && e.weather !== undefined)) openBodySheet(k, e.id)
@@ -960,10 +985,12 @@ async function openBodySheet(b, id) {
     showToast(editing ? `直しました${moved.length ? `(${moved.map(x => `「${nameOf(x)}」`).join('・')}も動かしました)` : ''}` : `${hm(e.at)} 「${e.label}」を記録しました`)
     return e
   }
+  const snapB = () => JSON.stringify([dayIn.value, timeIn.value, ta.value, form.get()])
+  const firstB = snapB()
   sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': b.label },
     h('div', { class: 'sheet-top' },
       h('h2', {}, h('span', { 'aria-hidden': 'true', text: `${b.icon} ` }), editing ? `${b.label}を直す` : b.label),
-      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
+      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: () => guardedClose(snapB, firstB, save, close, !editing) })),
     h('div', { class: 'sheet-body' },
       h('div', { class: 'ed-time compact' }, dayIn, timeIn, h('span', { class: 'hint', text: editing ? '' : '(そのままなら、いまの時刻)' })),
       form.el,
@@ -1266,10 +1293,12 @@ async function openEditor(id, preset = {}) {
     render()
   }
 
+  const snapE = () => JSON.stringify([dayIn.value, timeIn.value, endDayIn.value, endTimeIn.value, linkChk.checked, ta.value, { ...st, timeIsNow: undefined }, hf.get(), wf.get(), bowel])
+  const firstE = snapE()
   sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': editing ? '記録を直す' : '書く' },
     h('div', { class: 'sheet-top' },
       h('h2', { text: editing ? '記録を直す' : '書く' }),
-      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: () => close(false) })),
+      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: () => guardedClose(snapE, firstE, save, () => close(false), !editing) })),
     h('div', { class: 'sheet-body' },
       h('div', { class: 'ed-time' }, h('span', { class: 'ed-label', text: '時刻(始まり)' }), dayIn, timeIn, nowTag),
       endBox,
@@ -2029,6 +2058,8 @@ function openButtonSettings() {
   const paint = () => {
     const keep = body.scrollTop          // 押したあとに画面が動かないように(v0.18.4)
     requestAnimationFrame(() => { body.scrollTop = keep })
+    const foot = sheet.querySelector('.sheet-foot')
+    if (foot) foot.hidden = !!(pzOpen && pzPick)   // ひな形のチェックの間は「保存する」を出さない(当てはめ忘れを防ぐ)
     if (pzOpen) { pzView(); return }
     body.replaceChildren(h('p', { class: 'hint', text: 'ボタンの名前・絵・並びを変えられます。消しても、そのボタンで記録した分は残ります。最後に「保存する」を押してください。' }),
       h('div', { class: 'tabs bs-tabs', role: 'tablist', 'aria-label': 'どのタブのボタンを見るか' },
@@ -2200,8 +2231,10 @@ function openButtonSettings() {
     close()
     showToast('ボタンを保存しました')
   }
+  const snapS = () => JSON.stringify([list, withs, newPreset])
+  const firstS = snapS()
   sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'ボタン設定' },
-    h('div', { class: 'sheet-top' }, h('h2', { text: 'ボタン設定' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
+    h('div', { class: 'sheet-top' }, h('h2', { text: 'ボタン設定' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: () => guardedClose(snapS, firstS, save, close) })),
     body,
     h('div', { class: 'sheet-foot' }, h('button', { type: 'button', class: 'primary-btn', text: '保存する', onclick: save }))))
   paint()
