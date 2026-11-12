@@ -705,3 +705,11 @@ button, input, textarea { font: inherit; color: inherit; }
 .fpx-cnt { margin-left: auto; font-size: 13px; color: var(--accent); }
 .tl-mood .tl-fun-q { color: #7c3aed; }
 @media (prefers-color-scheme: dark) { .tl-mood .tl-fun-q { color: #c4b5fd; } }
+
+/* v0.20.9 ペットの種類・体調 */
+.pt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 10px; }
+.pt-q { font-size: 14px; font-weight: 700; margin-right: 4px; }
+.pt-chip[aria-pressed="true"] { background: #7c3aed; border-color: #7c3aed; }
+.fpx-group > .pt-row { padding: 10px 10px 0; margin: 0; }
+.ph-field { margin-top: 12px; }
+.ph-field .ed-label { display: block; margin-bottom: 4px; }

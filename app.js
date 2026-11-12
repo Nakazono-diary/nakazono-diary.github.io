@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.20.8'
+const VERSION = '0.20.9'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -60,7 +60,7 @@ const DEFAULT_BUTTONS = [
   { kind: 'bowel', label: 'お通じ', icon: '🚽', tab: 'body', form: 'bowel' },
   { kind: 'weather', label: '天気', icon: '🌤️', tab: 'body', form: 'weather' },
 ]
-const FORMS = ['health', 'bowel', 'weather']
+const FORMS = ['health', 'bowel', 'weather', 'pethealth']
 // 時間の長さ(span: true のボタンは、押すと始まり、終わりを押すまで「続いているもの」になる)
 // 組: このボタンを押すと、続いている〇〇を終える(就寝→起床 など)
 const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume', 'out'], break: ['resume', 'out'],   // v0.19.6 本人「昼休みの押し忘れは退社で」
@@ -87,12 +87,15 @@ const ongoingOf = async () => (await allEntries()).filter(e => e.span && !e.end)
 const ICONS = ['🎷', '🎸', '🎪', '🎶', '⛷️', '🚙', '🏍️', '🚴', '⛰️', '🤿', '🏊', '🐠', '🫧', '🧋', '🍻', '💖', '🏟️', '♨️', '🧳', '🌳', '🎡', '🎢', '🏖️', '⛺', '🎲', '🎯', '📷', '⭐', '☀️', '🌙', '🛁', '🚪', '📍', '🏢', '🌆', '🏠', '🍽️', '🍙', '☕', '▶️', '⏸️', '📖', '📺', '🎮', '🎨', '🏋️', '🧘', '🚶',
   '🏥', '💊', '🪦', '🙏', '⛩️', '🛒', '🏦', '🏛️', '💈', '✂️', '🎣', '⛳', '🎤', '🎬', '🎵', '🍺', '🍜', '🍰', '🐕', '🌱',
   '🧹', '🧺', '🚗', '⛽', '🔧', '💻', '📞', '✉️', '👪', '👶', '🎂', '🎁', '🏖️', '♨️', '🛏️', '🚿', '🪥', '💤', '📝', '❤️',
-  '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊', '🔙', '🚃', '🚌', '🚲']
+  '🩺', '🚽', '🌡️', '🤧', '🦷', '👓', '🌤️', '☔', '🎙️', '🌊', '🔙', '🚃', '🚌', '🚲',
+  // v0.20.9 本人「私の子イヌじゃないけどなー」→ 動物をたくさん
+  '🐈', '🐈‍⬛', '🐩', '🦮', '🐕‍🦺', '🐇', '🐹', '🐭', '🐿️', '🦔', '🐦', '🦜', '🐤', '🦉', '🐟', '🐡', '🐢', '🦎', '🐍', '🐸', '🐴', '🐓', '🐷', '🐑', '🐾', '🦴', '🥕', '🧶', '🎾']
 
 let BUTTONS = DEFAULT_BUTTONS.map(b => ({ ...b }))
 async function loadButtons() {
   try {
     const v = await getSetting('buttons')
+    const pt = await getSetting('petType'); if (PET_TYPES.some(x => x.key === pt)) PET_TYPE = pt
     if (v && v.preset) { PRESET = v.preset; applyPresetNames() }
     if (v && Array.isArray(v.buttons) && v.buttons.length) {
       BUTTONS = v.buttons
@@ -147,7 +150,7 @@ const CANDIDATES = [
   { group: '💅 身だしなみ', tab: 'errand', play: false, fun: false, items: [['hairsalon', '美容院', '💇'], ['barbershop', '床屋', '💈'], ['nail', 'ネイル', '💅'], ['matsuek', 'まつエク', '👁️'],
     ['esthe', 'エステ', '🧖‍♀️'], ['mayu', 'まゆ毛', '✨'], ['massage', 'マッサージ', '💆'], ['seitai', '整体', '🦴'], ['datsumo', '脱毛', '🪒']] },
   // v0.20.8 本人「ペット(動物家族)に対するボタンが乏しい」→ タブ「ペット」を増やす。mood = 押したあとに「ご機嫌」を聞くもの
-  { group: '🐾 ペット', tab: 'pet', play: false, fun: false, mood: ['petwalk', 'petfood', 'petsnack', 'petplay', 'dogrun'], items: [['petwalk', 'お散歩', '🐕'], ['petfood', 'ごはん', '🥣', false, false],
+  { group: '🐾 ペット', tab: 'pet', play: false, fun: false, mood: ['petwalk', 'petfood', 'petsnack', 'petplay', 'dogrun'], items: [['pethealth', '体調', '🩺', false, false], ['petwalk', 'お散歩', '🐕'], ['petfood', 'ごはん', '🥣', false, false],
     ['petsnack', 'おやつ', '🦴', false, false], ['petplay', 'あそぶ', '🎾', false], ['petbrush', 'お手入れ', '🪮', false], ['petnail', '爪切り', '✂️', false, false],
     ['pettoilet', 'トイレそうじ', '🧻', false, false], ['petshampoo', 'シャンプー', '🛁'], ['vet', '動物病院', '🏥'], ['petmeds', 'お薬', '💊', false, false],
     ['dogrun', 'ドッグラン', '🐕‍🦺'], ['pethotel', 'ペットホテル', '🏨', true, false]] },
@@ -156,7 +159,23 @@ const CANDIDATES = [
 ].map(g => ({ group: g.group, tab: g.tab || 'play', mood: g.mood || [], play: g.play !== false, fun: g.fun !== false, items: g.items.map(([kind, label, icon, place, span]) => ({ kind, label, icon, place: place !== false, span: span !== false })) }))
 // v0.20.7: 候補はまとまりごとに入るタブを決める(本人「前は遊びとか項目選択してて固定なようにしてなかった?」)。
 // 遊びの候補 → 遊び、身だしなみ → 用事、子育て → すること。足したあとで「タブを変える」で移すのは自由
-const candToButton = (g, x) => ({ kind: x.kind, label: x.label, icon: x.icon, tab: g.tab, ...(x.span ? { span: true } : {}), ...(g.fun ? { askFun: true } : {}), ...(x.place ? { askPlace: true } : {}), ...(g.mood.includes(x.kind) ? { askMood: true } : {}) })
+// v0.20.9: ペットの種類(本人「私の子イヌじゃないけどなーっていうのがあると思う」)。選んだ種類で、ペットのボタンの絵が変わる。
+// 犬(とその他)のとき以外は、お散歩・ドッグランを候補に出さない(使いたい人はボタン設定で「＋ 新しいボタン」から)
+const PET_TYPES = [['dog', '犬', '🐕'], ['cat', '猫', '🐈'], ['rabbit', 'うさぎ', '🐇'], ['hamster', 'ハムスター', '🐹'], ['bird', '小鳥', '🐦'],
+  ['fish', '魚', '🐠'], ['turtle', 'カメ', '🐢'], ['reptile', 'は虫類', '🦎'], ['other', 'その他', '🐾']].map(([key, label, icon]) => ({ key, label, icon }))
+let PET_TYPE = 'dog'
+const PET_DOG_ONLY = ['petwalk', 'dogrun']
+const PET_SNACK = { dog: '🦴', cat: '🐟', rabbit: '🥕', hamster: '🌻', bird: '🌾' }
+function petIcon(kind, type, base) {
+  const t = PET_TYPES.find(x => x.key === type) || PET_TYPES[0]
+  if (kind === 'petplay') return t.icon
+  if (kind === 'petwalk') return type === 'dog' ? '🦮' : t.icon
+  if (kind === 'petsnack') return PET_SNACK[type] || '🍪'
+  return base
+}
+const candItems = (g, type = PET_TYPE) => (g.tab !== 'pet' ? g.items
+  : g.items.filter(x => type === 'dog' || type === 'other' || !PET_DOG_ONLY.includes(x.kind)).map(x => ({ ...x, icon: petIcon(x.kind, type, x.icon) })))
+const candToButton = (g, x) => ({ kind: x.kind, label: x.label, icon: x.icon, tab: g.tab, ...(x.kind === 'pethealth' ? { form: 'pethealth' } : {}), ...(x.span ? { span: true } : {}), ...(g.fun ? { askFun: true } : {}), ...(x.place ? { askPlace: true } : {}), ...(g.mood.includes(x.kind) ? { askMood: true } : {}) })
 // 統計の「遊び」に数える候補(身だしなみ・子育ては入れない)
 const CAND_KINDS = CANDIDATES.filter(g => g.play).flatMap(g => g.items.map(x => x.kind))
 // 1つのタブに置けるボタンの数(v0.18.4。本人「最大ボタン数決めないとね」)
@@ -610,6 +629,114 @@ function funRow(e) {
       onclick: (ev) => { ev.stopPropagation(); setFun(e.id, i + 1) } })))
 }
 
+// どんな子?(ペットの種類)を選ぶ列。押した種類に印を付けて onPick を呼ぶ
+function petTypeRow(cur, onPick) {
+  const row = h('div', { class: 'pt-row', role: 'group', 'aria-label': 'どんな子?' }, h('span', { class: 'pt-q', text: 'どんな子?' }))
+  for (const t of PET_TYPES) {
+    const b = h('button', { type: 'button', class: 'chip pt-chip', 'aria-pressed': t.key === cur ? 'true' : 'false', text: `${t.icon} ${t.label}` })
+    b.addEventListener('click', (ev) => { ev.preventDefault(); row.querySelectorAll('.pt-chip').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false')); onPick(t.key) })
+    row.append(b)
+  }
+  return row
+}
+
+// ---------- ペットの体調(v0.20.9。本人「体調はクラくんおすすめで」) ----------
+// 記録に pethealth = { appetite, poop, pee, vomit, weight, signs[] } と pmood(ご機嫌)。病気かどうかの判断はしない
+const PH_FIELDS = [
+  ['appetite', '🍽️ 食欲', ['よく食べた', 'ふつう', '少しだけ', '食べない']],
+  ['poop', '💩 うんち', ['ふつう', 'ゆるい', 'かたい', '出ていない']],
+  ['pee', '💧 おしっこ', ['ふつう', '多い', '少ない']],
+  ['vomit', '🤮 吐いた', ['なし', '1回', '何回も']],
+]
+const PH_SIGNS = ['せき・くしゃみ', '目やに・涙', 'かゆがる', '足をかばう', 'ぐったり', '毛が抜ける', '水をよく飲む']
+function petHealthText(ph) {
+  if (!ph) return ''
+  const a = PH_FIELDS.filter(([k]) => ph[k]).map(([k, l]) => `${l.split(' ')[1]} ${ph[k]}`)
+  if (ph.weight != null) a.push(`体重 ${ph.weight}kg`)
+  if (ph.signs && ph.signs.length) a.push(`気になる: ${ph.signs.join('・')}`)
+  return a.length ? `🩺 ${a.join(' ・ ')}` : ''
+}
+async function openPetHealth(b, id) {
+  const editing = id ? await getEntry(id) : null
+  const ph0 = (editing && editing.pethealth) || {}
+  const st = { ...ph0, signs: [...(ph0.signs || [])], pmood: editing ? editing.pmood : undefined }
+  const now = new Date()
+  const dayIn = h('input', { type: 'date', class: 'input small', value: editing ? editing.day : shownDay(), 'aria-label': '日付' })
+  const timeIn = h('input', { type: 'time', class: 'input small', value: editing ? editing.at.slice(11, 16) : `${pad(now.getHours())}:${pad(now.getMinutes())}`, 'aria-label': '時刻' })
+  let timeTouched = !editing && shownDay() !== today
+  dayIn.addEventListener('change', () => { timeTouched = true }); timeIn.addEventListener('change', () => { timeTouched = true })
+  // 前に入れた体重を出発点に
+  let lastW = null
+  if (ph0.weight == null) for (const e of (await allEntries()).sort((a, c) => (a.at < c.at ? 1 : -1))) if (e.pethealth && e.pethealth.weight != null && e.id !== id) { lastW = e.pethealth.weight; break }
+  const wIn = h('input', { type: 'number', class: 'input small', inputmode: 'decimal', step: '0.01', min: '0', max: '200', placeholder: lastW != null ? `前回 ${lastW}` : 'kg', value: ph0.weight != null ? String(ph0.weight) : '', 'aria-label': '体重(kg)' })
+  const ta = h('textarea', { class: 'input textarea short', rows: '3', placeholder: 'ひとこと(なくてもよい)', 'aria-label': 'ひとこと' })
+  ta.value = editing ? textOf(editing) : ''
+  const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite' })
+  const one = (key, label, opts) => {
+    const row = h('div', { class: 'chips' })
+    const paint = () => row.replaceChildren(...opts.map(o => h('button', { type: 'button', class: 'chip', 'aria-pressed': st[key] === o ? 'true' : 'false', text: o,
+      onclick: () => { st[key] = st[key] === o ? undefined : o; paint() } })))
+    paint()
+    return h('div', { class: 'ph-field' }, h('span', { class: 'ed-label', text: label }), row)
+  }
+  const moodBox = h('div', { class: 'chips' })
+  const paintMood = () => moodBox.replaceChildren(...PMOOD_FACES.map((f, i) => h('button', { type: 'button', class: 'chip mood', 'aria-pressed': st.pmood === i + 1 ? 'true' : 'false',
+    onclick: () => { st.pmood = st.pmood === i + 1 ? undefined : i + 1; paintMood() } }, h('span', { class: 'chip-icon', text: f }), PMOOD_WORDS[i])))
+  paintMood()
+  const signBox = h('div', { class: 'chips' })
+  const paintSigns = () => signBox.replaceChildren(...PH_SIGNS.map(o => h('button', { type: 'button', class: 'chip', 'aria-pressed': st.signs.includes(o) ? 'true' : 'false', text: o,
+    onclick: () => { st.signs = st.signs.includes(o) ? st.signs.filter(x => x !== o) : [...st.signs, o]; paintSigns() } })))
+  paintSigns()
+  const data = () => {
+    const d = {}
+    for (const [k] of PH_FIELDS) if (st[k]) d[k] = st[k]
+    const w = parseFloat(wIn.value); if (Number.isFinite(w) && w > 0) d.weight = Math.round(w * 100) / 100
+    if (st.signs.length) d.signs = [...st.signs]
+    return Object.keys(d).length ? d : null
+  }
+  const sheet = $('#sheet')
+  const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+  const save = async () => {
+    const d = data()
+    if (!d && !st.pmood && !ta.value.trim()) { msg.textContent = 'ご機嫌や食欲など、どれか1つ入れてください'; return null }
+    const ts = stamp(new Date())
+    const useNow = !editing && !timeTouched
+    const t = useNow ? hmsOf(new Date()) : `${timeIn.value || '00:00'}:${editing && !timeTouched ? editing.at.slice(17, 19) : '00'}`
+    const day = useNow ? dayOf(new Date()) : (dayIn.value || today)
+    const e = { ...(editing || { photos: [], created_at: ts }), id: editing ? editing.id : newId(), at: `${day}T${t}`, day, kind: b.kind, label: editing ? editing.label : b.label, icon: editing ? editing.icon : b.icon, text: ta.value.trim(), updated_at: ts }
+    delete e.pethealth; delete e.pmood
+    if (d) e.pethealth = d
+    if (st.pmood) e.pmood = st.pmood
+    await putEntry(e)
+    close()
+    await render()
+    showToast(editing ? '直しました' : `${hm(e.at)} 「${e.label}」を記録しました`)
+    return e
+  }
+  const snap = () => JSON.stringify([dayIn.value, timeIn.value, ta.value, wIn.value, st])
+  const first = snap()
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': b.label },
+    h('div', { class: 'sheet-top' },
+      h('h2', {}, h('span', { 'aria-hidden': 'true', text: `${b.icon} ` }), editing ? `${b.label}を直す` : `${b.label}(ペット)`),
+      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: () => guardedClose(snap, first, save, close, !editing) })),
+    h('div', { class: 'sheet-body' },
+      h('div', { class: 'ed-time compact' }, dayIn, timeIn, h('span', { class: 'hint', text: editing ? '' : '(そのままなら、いまの時刻)' })),
+      h('div', { class: 'ph-field' }, h('span', { class: 'ed-label', text: '🐾 ご機嫌' }), moodBox),
+      ...PH_FIELDS.map(([k, l, o]) => one(k, l, o)),
+      h('div', { class: 'ph-field' }, h('span', { class: 'ed-label', text: '⚖️ 体重(kg)' }), wIn),
+      h('div', { class: 'ph-field' }, h('span', { class: 'ed-label', text: '👀 気になること(いくつでも)' }), signBox),
+      h('div', { class: 'ph-field' }, h('span', { class: 'ed-label', text: 'ひとこと' }), ta),
+      h('p', { class: 'hint', text: '残しておくだけで、病気かどうかの判断はしません。気になるときは動物病院へ。' }),
+      msg),
+    h('div', { class: 'sheet-foot' },
+      editing ? h('button', { type: 'button', class: 'danger-btn', text: '消す', onclick: async () => {
+        if (!confirm(`${hm(editing.at)} の「${editing.label}」を消しますか?`)) return
+        await deleteEntry(editing.id); close(); render() } }) : null,
+      h('button', { type: 'button', class: 'primary-btn', text: editing ? '保存する' : '記録する', onclick: save }))))
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+}
+
 // ---------- ペットのご機嫌(v0.20.8。本人「遊ぶにご機嫌をポチれるように」) ----------
 const PMOOD_FACES = ['😢', '😐', '🙂', '😄', '🥰']
 const PMOOD_WORDS = ['元気ない', 'ふつう', 'ごきげん', 'うれしそう', '大よろこび']
@@ -708,6 +835,7 @@ async function card(e) {
   for (const line of healthLines(e.health)) body.append(h('p', { class: 'tl-health', text: line }))
   if (e.bowel && (e.bowel.type || e.bowel.count != null)) body.append(h('p', { class: 'tl-health', text: e.kind === 'bowel' ? bowelText(e.bowel).replace('🚽 お通じ', 'かたさ:').replace(/(\d+)回/, '$1回 ・') : bowelText(e.bowel) }))
   if (e.weather) body.append(h('p', { class: 'tl-weather', text: weatherText(e.weather) }))
+  if (e.pethealth) body.append(h('p', { class: 'tl-health', text: petHealthText(e.pethealth) }))
   if (text) {
     const p = h('p', { class: 'tl-text clamp', text })
     body.append(p)
@@ -806,6 +934,7 @@ let toastTimer = null
 function pressButton(b) {
   if (viewDay) { viewDay = null; render() }      // ボタンは「いま」の記録なので、今日にもどる
   if (b.form === 'health' || b.form === 'weather') { closeMovePick(); openBodySheet(b, null) }
+  else if (b.form === 'pethealth') { closeMovePick(); openPetHealth(b, null) }
   else quickRecord(b)
 }
 async function quickRecord(b) {
@@ -967,6 +1096,7 @@ async function guardedClose(snap, first, save, close, isNew) {
 
 function openEntry(e) {
   const k = kindInfo(e.kind) || {}
+  if (k.form === 'pethealth' || e.pethealth) { openPetHealth({ ...k, kind: e.kind, label: e.label, icon: e.icon }, e.id); return }
   if ((k.form === 'health' && e.health !== undefined) || (k.form === 'weather' && e.weather !== undefined)) openBodySheet(k, e.id)
   else if ((k.form === 'health' || k.form === 'weather') && !e.text && !photosOf(e).length && !audiosOf(e).length) openBodySheet(k, e.id)
   else openEditor(e.id)
@@ -1011,7 +1141,7 @@ async function openBodySheet(b, id) {
     await putEntry(e)
     close()
     await render()
-    showToast(editing ? `直しました${moved.length ? `(${moved.map(x => `「${nameOf(x)}」`).join('・')}も動かしました)` : ''}` : `${hm(e.at)} 「${e.label}」を記録しました`)
+    showToast(editing ? '直しました' : `${hm(e.at)} 「${e.label}」を記録しました`)   // v0.20.9: ここで moved(書く・直すの変数)を使っていて、体調を直すと止まっていた
     return e
   }
   const snapB = () => JSON.stringify([dayIn.value, timeIn.value, ta.value, form.get()])
@@ -1745,6 +1875,7 @@ function prtLine(e, o) {
   if (o.health && e.health) sub.push(...healthLines(e.health))
   if (o.health && e.bowel) sub.push(bowelText(e.bowel))
   if (o.weather && e.weather) sub.push(weatherText(e.weather))
+  if (o.health && e.pethealth) sub.push(petHealthText(e.pethealth))
   if (e.fun) sub.push(`${FUN_FACES[e.fun - 1]} ${FUN_WORDS[e.fun - 1]}`)
   if (e.pmood) sub.push(`🐾 ${PMOOD_FACES[e.pmood - 1]} ${PMOOD_WORDS[e.pmood - 1]}`)
   return { time: hm(e.at), icon: e.icon || k.icon || '📝', label: e.label || k.label || 'メモ', sub: sub.filter(Boolean), text: o.text ? textOf(e) : '', photos: o.photos ? photosOf(e) : [] }
@@ -2458,23 +2589,36 @@ async function maybeFirstPreset() {
     const groups = buttonChecklist(all, on, paintCount)
     // v0.20.7: その下に、ほかの候補も(最初はチェックなし。まとまりごとに押すと開く)。本人「最初の段階である程度選択できるように」
     const presetKinds = new Set(all.map(b => b.kind))
+    let ftype = PET_TYPE
     const more = CANDIDATES.map(g => {
-      const items = g.items.filter(x => !presetKinds.has(x.kind))
-      if (!items.length) return null
+      const items0 = candItems(g, ftype).filter(x => !presetKinds.has(x.kind))
+      if (!items0.length) return null
       const tabName = (TABS.find(z => z.key === g.tab) || {}).label
       const cnt = h('span', { class: 'fpx-cnt' })
-      const paintCnt = () => { const n = items.filter(x => extra.has(x.kind)).length; cnt.textContent = n ? `${n}個 選択` : '' }
-      const det = h('details', { class: 'fpx-group' },
-        h('summary', {}, h('span', { text: `${g.group}` }), h('span', { class: 'fpx-tab', text: `→ ${tabName}` }), cnt),
-        h('div', { class: 'fp-list' }, ...items.map(x => {
+      const listBox = h('div', { class: 'fp-list' })
+      const itemsNow = () => candItems(g, ftype).filter(x => !presetKinds.has(x.kind))
+      const paintCnt = () => { const n = itemsNow().filter(x => extra.has(x.kind)).length; cnt.textContent = n ? `${n}個 選択` : '' }
+      const paintItems = () => listBox.replaceChildren(...itemsNow().map(x => {
           const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': 'false' },
             h('span', { class: 'fp-check', 'aria-hidden': 'true' }), h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: x.icon }), h('span', { class: 'fp-label', text: x.label }))
+          if (extra.has(x.kind)) el.setAttribute('aria-pressed', 'true')
           el.onclick = () => {
             if (extra.has(x.kind)) extra.delete(x.kind); else extra.set(x.kind, candToButton(g, x))
             el.setAttribute('aria-pressed', extra.has(x.kind) ? 'true' : 'false'); paintCnt(); paintCount()
           }
           return el
-        })))
+        }))
+      paintItems()
+      // ペットは「どんな子?」を先に聞く。変えたら、選んだボタンの絵も変える・合わないボタンは外す
+      const typeRow = g.tab === 'pet' ? petTypeRow(ftype, (nt) => {
+        ftype = nt
+        const ok = new Map(itemsNow().map(x => [x.kind, x]))
+        for (const k of [...extra.keys()]) if (CANDIDATES.find(z => z.tab === 'pet').items.some(x => x.kind === k)) { if (ok.has(k)) extra.set(k, candToButton(g, ok.get(k))); else extra.delete(k) }
+        paintItems(); paintCnt(); paintCount()
+      }) : null
+      const det = h('details', { class: 'fpx-group' },
+        h('summary', {}, h('span', { text: `${g.group}` }), h('span', { class: 'fpx-tab', text: `→ ${tabName}` }), cnt),
+        typeRow, listBox)
       return det
     }).filter(Boolean)
     if (more.length) groups.push(h('section', { class: 'fpx' },
@@ -2483,6 +2627,7 @@ async function maybeFirstPreset() {
     go.onclick = async () => {
       const list = chosen()
       if (!list.length) return
+      if (list.some(b => b.tab === 'pet')) { PET_TYPE = ftype; await putSetting('petType', ftype) }
       await saveButtons(list, p.key)
       buildButtons()
       close()
@@ -2548,8 +2693,13 @@ function openButtonSettings() {
       if (candOpen && groups.length) {
         sec.append(h('div', { class: 'bs-cands' },
           h('p', { class: 'hint', text: same.length >= MAX_PER_TAB ? `1つのタブに置けるのは ${MAX_PER_TAB}個までです。使わないボタンを消すか、別のタブ(「タブを変える」)へ移してください。` : `押すと、このタブの最後に足します(色の付いたものは足してあるもの。もう一度押すと外します。1つのタブに ${MAX_PER_TAB}個まで・いま ${same.length}個)。名前や絵は、足したあとで変えられます。` }),
+          ...(t.key === 'pet' ? [petTypeRow(PET_TYPE, async (nt) => {
+            const old = PET_TYPE; PET_TYPE = nt; await putSetting('petType', nt)
+            for (const b of list) if (b.tab === 'pet' && b.icon === petIcon(b.kind, old, b.icon) && petIcon(b.kind, nt, b.icon) !== b.icon) b.icon = petIcon(b.kind, nt, b.icon)   // 種類の絵のままのボタンは、新しい種類の絵に
+            paint()
+          })] : []),
           ...groups.map(g => h('div', { class: 'bs-cand-group' }, h('p', { class: 'bs-cand-title', text: g.group }),
-            h('div', { class: 'bs-cand-chips' }, ...g.items.map(x => {
+            h('div', { class: 'bs-cand-chips' }, ...candItems(g).map(x => {
               // v0.20.6: 色を付けるのは、このタブに足してあるものだけ。ほかのタブにあるものは薄く「(遊び)」と出し、押しても外さない(本人「バグ」)
               const inTab = list.find(b => b.kind === x.kind)
               const have = !!inTab && inTab.tab === t.key
