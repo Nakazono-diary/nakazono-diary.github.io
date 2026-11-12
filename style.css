@@ -703,3 +703,5 @@ button, input, textarea { font: inherit; color: inherit; }
 .fpx-group > .fp-list { padding: 10px; }
 .fpx-tab { font-size: 13px; font-weight: 600; color: var(--muted); }
 .fpx-cnt { margin-left: auto; font-size: 13px; color: var(--accent); }
+.tl-mood .tl-fun-q { color: #7c3aed; }
+@media (prefers-color-scheme: dark) { .tl-mood .tl-fun-q { color: #c4b5fd; } }

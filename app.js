@@ -10,11 +10,11 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.20.7'
+const VERSION = '0.20.8'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
-const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'play', label: '遊び' }, { key: 'errand', label: '用事' }, { key: 'go', label: '外出・移動' }, { key: 'body', label: '体調・天気' }]
+const TABS = [{ key: 'flow', label: '1日の流れ' }, { key: 'do', label: 'すること' }, { key: 'play', label: '遊び' }, { key: 'errand', label: '用事' }, { key: 'pet', label: 'ペット' }, { key: 'go', label: '外出・移動' }, { key: 'body', label: '体調・天気' }]
 const DEFAULT_BUTTONS = [
   { kind: 'wake', label: '起床', icon: '☀️', tab: 'flow', askPlace: true },
   { kind: 'leave', label: '出発', icon: '🚪', tab: 'flow', askMove: true, askPlace: true, span: true },
@@ -146,12 +146,17 @@ const CANDIDATES = [
   // play: false = 統計の「遊び」に数えない、fun: false = 楽しかった度を聞かない
   { group: '💅 身だしなみ', tab: 'errand', play: false, fun: false, items: [['hairsalon', '美容院', '💇'], ['barbershop', '床屋', '💈'], ['nail', 'ネイル', '💅'], ['matsuek', 'まつエク', '👁️'],
     ['esthe', 'エステ', '🧖‍♀️'], ['mayu', 'まゆ毛', '✨'], ['massage', 'マッサージ', '💆'], ['seitai', '整体', '🦴'], ['datsumo', '脱毛', '🪒']] },
+  // v0.20.8 本人「ペット(動物家族)に対するボタンが乏しい」→ タブ「ペット」を増やす。mood = 押したあとに「ご機嫌」を聞くもの
+  { group: '🐾 ペット', tab: 'pet', play: false, fun: false, mood: ['petwalk', 'petfood', 'petsnack', 'petplay', 'dogrun'], items: [['petwalk', 'お散歩', '🐕'], ['petfood', 'ごはん', '🥣', false, false],
+    ['petsnack', 'おやつ', '🦴', false, false], ['petplay', 'あそぶ', '🎾', false], ['petbrush', 'お手入れ', '🪮', false], ['petnail', '爪切り', '✂️', false, false],
+    ['pettoilet', 'トイレそうじ', '🧻', false, false], ['petshampoo', 'シャンプー', '🛁'], ['vet', '動物病院', '🏥'], ['petmeds', 'お薬', '💊', false, false],
+    ['dogrun', 'ドッグラン', '🐕‍🦺'], ['pethotel', 'ペットホテル', '🏨', true, false]] },
   { group: '👶 子育て', tab: 'do', play: false, fun: false, items: [['childcare', '育児', '👶', false], ['junyu', '授乳', '🍼', false], ['omutsu', 'おむつ', '🧷', false, false],
     ['nekashi', '寝かしつけ', '💤', false], ['pickup', '送り迎え', '🚗']] },
-].map(g => ({ group: g.group, tab: g.tab || 'play', play: g.play !== false, fun: g.fun !== false, items: g.items.map(([kind, label, icon, place, span]) => ({ kind, label, icon, place: place !== false, span: span !== false })) }))
+].map(g => ({ group: g.group, tab: g.tab || 'play', mood: g.mood || [], play: g.play !== false, fun: g.fun !== false, items: g.items.map(([kind, label, icon, place, span]) => ({ kind, label, icon, place: place !== false, span: span !== false })) }))
 // v0.20.7: 候補はまとまりごとに入るタブを決める(本人「前は遊びとか項目選択してて固定なようにしてなかった?」)。
 // 遊びの候補 → 遊び、身だしなみ → 用事、子育て → すること。足したあとで「タブを変える」で移すのは自由
-const candToButton = (g, x) => ({ kind: x.kind, label: x.label, icon: x.icon, tab: g.tab, ...(x.span ? { span: true } : {}), ...(g.fun ? { askFun: true } : {}), ...(x.place ? { askPlace: true } : {}) })
+const candToButton = (g, x) => ({ kind: x.kind, label: x.label, icon: x.icon, tab: g.tab, ...(x.span ? { span: true } : {}), ...(g.fun ? { askFun: true } : {}), ...(x.place ? { askPlace: true } : {}), ...(g.mood.includes(x.kind) ? { askMood: true } : {}) })
 // 統計の「遊び」に数える候補(身だしなみ・子育ては入れない)
 const CAND_KINDS = CANDIDATES.filter(g => g.play).flatMap(g => g.items.map(x => x.kind))
 // 1つのタブに置けるボタンの数(v0.18.4。本人「最大ボタン数決めないとね」)
@@ -220,7 +225,7 @@ async function loadLists() {
   } catch { /* なくても動く */ }
 }
 // ボタンの見た目以外に持つもの(保存・読み込みで残す)
-const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(b.askFun ? { askFun: true } : {}), ...(b.askWith != null ? { askWith: !!b.askWith } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
+const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(b.askFun ? { askFun: true } : {}), ...(b.askMood ? { askMood: true } : {}), ...(b.askWith != null ? { askWith: !!b.askWith } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
 async function saveButtons(list, preset = PRESET) {
   BUTTONS = list; PRESET = preset; applyPresetNames()
   await putSetting('buttons', { buttons: list, preset, added: ADDED_LATER, placeAdded: true, spanAdded: true, updated_at: stamp(new Date()) })
@@ -605,6 +610,25 @@ function funRow(e) {
       onclick: (ev) => { ev.stopPropagation(); setFun(e.id, i + 1) } })))
 }
 
+// ---------- ペットのご機嫌(v0.20.8。本人「遊ぶにご機嫌をポチれるように」) ----------
+const PMOOD_FACES = ['😢', '😐', '🙂', '😄', '🥰']
+const PMOOD_WORDS = ['元気ない', 'ふつう', 'ごきげん', 'うれしそう', '大よろこび']
+function askMoodOf(e) { const b = BUTTONS.find(x => x.kind === e.kind); return !!(b && b.askMood) }
+async function setMood(id, n) {
+  const cur = await getEntry(id)
+  if (!cur) return
+  const next = { ...cur, updated_at: stamp(new Date()) }
+  if (cur.pmood === n) delete next.pmood; else next.pmood = n
+  await putEntry(next)
+  render()
+}
+function moodRow(e) {
+  return h('div', { class: 'tl-fun tl-mood', role: 'group', 'aria-label': 'ご機嫌' },
+    h('span', { class: 'tl-fun-q', text: e.pmood ? `🐾 ${PMOOD_WORDS[e.pmood - 1]}` : '🐾 ご機嫌は?' }),
+    ...PMOOD_FACES.map((f, i) => h('button', { type: 'button', class: 'fun-face', 'aria-pressed': e.pmood === i + 1 ? 'true' : 'false', 'aria-label': PMOOD_WORDS[i], text: f,
+      onclick: (ev) => { ev.stopPropagation(); setMood(e.id, i + 1) } })))
+}
+
 // ---------- だれと(v0.18.3。本人「人とだったら、友達と飲み・家族とカラオケにならない?」→ ボタンではなく、記録に付ける印) ----------
 const DEFAULT_WITH = [['alone', 'ひとり', '🙂'], ['friends', '友だち', '👫'], ['family', '家族', '👨‍👩‍👧'], ['partner', 'パートナー', '💑'],
   ['coworker', '仕事仲間', '👔'], ['kids', '子ども', '🧒'], ['pet', 'ペット', '🐕']].map(([key, label, icon]) => ({ key, label, icon }))
@@ -670,6 +694,7 @@ async function card(e) {
   }
   // v0.18: 楽しかった度(遊びのボタンなど askFun の記録と、もう付けた記録)
   if (e.fun || askFunOf(e)) body.append(funRow(e))
+  if (e.pmood || askMoodOf(e)) body.append(moodRow(e))
   if ((e.with && e.with.length) || askWithOf(e)) body.append(withRow(e))
   if (placeName(e)) body.append(h('p', { class: 'tl-place', text: `📍 ${placeName(e)}` }))
   else if (e.loc) body.append(h('p', { class: 'tl-place none', text: '📍 名前のない場所(「直す」で名前を付けられます)' }))
@@ -765,7 +790,8 @@ function currentTab() { try { return localStorage.getItem(TAB_KEY) || 'flow' } c
 function buildButtons() {
   const tab = TABS.some(t => t.key === currentTab()) ? currentTab() : 'flow'
   const bar = $('#tabs')
-  bar.replaceChildren(...TABS.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === tab ? 'true' : 'false',
+  // v0.20.8: ペットのタブは、ペットのボタンがあるときだけ出す
+  bar.replaceChildren(...TABS.filter(t => t.key !== 'pet' || BUTTONS.some(b => b.tab === 'pet')).map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === tab ? 'true' : 'false',
     text: t.label, onclick: () => { try { localStorage.setItem(TAB_KEY, t.key) } catch { /* */ } setDockDown(false); buildButtons() } })))
   const box = $('#buttons')
   const list = BUTTONS.filter(b => b.tab === tab)
@@ -1720,6 +1746,7 @@ function prtLine(e, o) {
   if (o.health && e.bowel) sub.push(bowelText(e.bowel))
   if (o.weather && e.weather) sub.push(weatherText(e.weather))
   if (e.fun) sub.push(`${FUN_FACES[e.fun - 1]} ${FUN_WORDS[e.fun - 1]}`)
+  if (e.pmood) sub.push(`🐾 ${PMOOD_FACES[e.pmood - 1]} ${PMOOD_WORDS[e.pmood - 1]}`)
   return { time: hm(e.at), icon: e.icon || k.icon || '📝', label: e.label || k.label || 'メモ', sub: sub.filter(Boolean), text: o.text ? textOf(e) : '', photos: o.photos ? photosOf(e) : [] }
 }
 // 1日のまとめ(長さのある記録を呼び名ごとに足す)
@@ -1813,6 +1840,7 @@ async function prtMdPage(d, o) {
     if (o.place && placeName(e) && !lg.length) t += `(${placeName(e)})`
     if (e.span && e.end && !isMoment(e)) t += ` 〜${hourOf(e.end) + (e.end.slice(0, 10) !== e.day ? 24 : 0)}:${e.end.slice(14, 16)}`
     if (e.fun) t += ` ${FUN_FACES[e.fun - 1]}`
+    if (e.pmood) t += ` 🐾${PMOOD_FACES[e.pmood - 1]}`
     rowOf(hourOf(e.at)).items.push(t)
     if (e.span && e.end && e.kind !== 'sleep' && durMin(e.at, e.end) >= 90) {
       const h2 = Math.min(24, hourOf(e.end) + (e.end.slice(0, 10) !== e.day ? 24 : 0))
@@ -2561,6 +2589,9 @@ function openButtonSettings() {
         const askF = h('input', { type: 'checkbox' })
         askF.checked = !!b.askFun
         askF.addEventListener('change', () => { b.askFun = askF.checked })
+        const askMd = h('input', { type: 'checkbox' })
+        askMd.checked = !!b.askMood
+        askMd.addEventListener('change', () => { b.askMood = askMd.checked })
         const ask = h('input', { type: 'checkbox' })
         ask.checked = !!b.askMove
         ask.addEventListener('change', () => { b.askMove = ask.checked })
@@ -2578,7 +2609,7 @@ function openButtonSettings() {
               const at = list.indexOf(b)
               list = list.filter(x => x !== b); paint()
               showToast(`「${b.label || '新しいボタン'}」を消しました(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { list.splice(Math.min(at, list.length), 0, b); paint() } }]) } })),
-          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'), h('label', { class: 'bs-ask' }, askF, '楽しかった度を付ける'), h('label', { class: 'bs-ask' }, askW, 'だれとを付ける'),
+          h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'), h('label', { class: 'bs-ask' }, askF, '楽しかった度を付ける'), h('label', { class: 'bs-ask' }, askMd, 'ペットのご機嫌を聞く'), h('label', { class: 'bs-ask' }, askW, 'だれとを付ける'),
             PJ.ENABLED ? h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く') : null, tabSel))
         sec.append(row)
         if (pickFor === b.kind) {
