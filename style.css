@@ -684,11 +684,11 @@ button, input, textarea { font: inherit; color: inherit; }
 .prt-md-wx { font-size: 12pt; margin-right: 18%; }
 .prt-md-note { margin: 0 0 6pt; min-height: 1.4em; text-align: right; color: #3a9a6a; font-size: 10pt; }
 .prt-md-grid { display: grid; grid-template-columns: 1fr auto; gap: 8pt; }
-.prt-md-side { position: absolute; right: 2pt; top: 64pt; width: 34%; font-size: 10pt; background: #fff; padding-left: 6pt; }
+.prt-md-side { position: absolute; right: 2pt; top: 70pt; width: 34%; font-size: 10pt; background: #fff; padding-left: 6pt; }
 .prt-md-sidet { font-weight: 700; margin: 0 0 2pt; }
 .prt-md-side p { margin: 0; }
 .prt-md-rows { border-top: 1px solid #c9c9c9; }
-.prt-md-row { display: grid; grid-template-columns: 18pt 1fr; min-height: 22pt; border-bottom: 1px solid #c9c9c9; align-items: end; padding-bottom: 2pt; position: relative; }
+.prt-md-row { display: grid; grid-template-columns: 18pt 1fr; min-height: 21pt; border-bottom: 1px solid #c9c9c9; align-items: end; padding-bottom: 2pt; position: relative; }
 .prt-md-row.bar .prt-md-txt { border-left: 1.6pt solid #333; margin-left: 6pt; padding-left: 6pt; align-self: stretch; display: flex; align-items: flex-end; }
 .prt-md-num { font-size: 7.5pt; color: #888; text-align: right; padding-right: 4pt; align-self: center; }
 .prt-md-txt { padding-left: 12pt; line-height: 1.35; }
