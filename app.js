@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.20.5'
+const VERSION = '0.20.6'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -2476,9 +2476,9 @@ function openButtonSettings() {
     body.replaceChildren(h('p', { class: 'hint', text: 'ボタンの名前・絵・並びを変えられます。消しても、そのボタンで記録した分は残ります。最後に「保存する」を押してください。' }),
       h('div', { class: 'tabs bs-tabs', role: 'tablist', 'aria-label': 'どのタブのボタンを見るか' },
         ...TABS.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === showTab ? 'true' : 'false',
-          text: `${t.label} ${list.filter(b => b.tab === t.key).length}`, onclick: () => { showTab = t.key; pickFor = null; paint(); body.scrollTop = 0 } })),
+          text: `${t.label} ${list.filter(b => b.tab === t.key).length}`, onclick: () => { showTab = t.key; pickFor = null; candOpen = false; paint(); body.scrollTop = 0 } })),
         h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': showTab === '__with' ? 'true' : 'false', text: `👫 だれと ${withs.length}`,
-          onclick: () => { showTab = '__with'; pickFor = null; paint(); body.scrollTop = 0 } })))
+          onclick: () => { showTab = '__with'; pickFor = null; candOpen = false; paint(); body.scrollTop = 0 } })))
     if (showTab === '__with') { body.append(withEditor()); body.append(msg); return }
     for (const t of TABS.filter(x => x.key === showTab)) {
       const same = list.filter(b => b.tab === t.key)
@@ -2489,7 +2489,14 @@ function openButtonSettings() {
           h('p', { class: 'hint', text: same.length >= MAX_PER_TAB ? `1つのタブに置けるのは ${MAX_PER_TAB}個までです。使わないボタンを消すか、別のタブ(「タブを変える」)へ移してください。` : `押すと、このタブの最後に足します(色の付いたものは足してあるもの。もう一度押すと外します。1つのタブに ${MAX_PER_TAB}個まで・いま ${same.length}個)。名前や絵は、足したあとで変えられます。` }),
           ...CANDIDATES.map(g => h('div', { class: 'bs-cand-group' }, h('p', { class: 'bs-cand-title', text: g.group }),
             h('div', { class: 'bs-cand-chips' }, ...g.items.map(x => {
-              const have = list.some(b => b.kind === x.kind)
+              // v0.20.6: 色を付けるのは、このタブに足してあるものだけ。ほかのタブにあるものは薄く「(遊び)」と出し、押しても外さない(本人「バグ」)
+              const inTab = list.find(b => b.kind === x.kind)
+              const have = !!inTab && inTab.tab === t.key
+              if (inTab && !have) {
+                const where = (TABS.find(z => z.key === inTab.tab) || {}).label || ''
+                return h('button', { type: 'button', class: 'chip bs-cand elsewhere', 'aria-pressed': 'false', text: `${x.icon} ${x.label}(${where})`,
+                  onclick: () => showToast(`「${inTab.label}」は「${where}」のタブにあります。外すときは「${where}」のタブで押してください`) })
+              }
               const full = same.length >= MAX_PER_TAB
               return h('button', { type: 'button', class: 'chip bs-cand', disabled: !have && full, 'aria-pressed': have ? 'true' : 'false', text: `${x.icon} ${x.label}`,
                 onclick: () => {

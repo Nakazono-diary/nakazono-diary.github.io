@@ -693,3 +693,4 @@ button, input, textarea { font: inherit; color: inherit; }
 .prt-md-num { font-size: 7.5pt; color: #888; text-align: right; padding-right: 4pt; align-self: center; }
 .prt-md-txt { padding-left: 12pt; line-height: 1.35; }
 .prt-md-free { margin: 0; padding: 4pt 2pt 2pt 30pt; border-bottom: 1px solid #c9c9c9; min-height: 22pt; white-space: pre-wrap; }
+.bs-cand.elsewhere { opacity: .5; border-style: dashed; }
