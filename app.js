@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.20.9'
+const VERSION = '0.21.0'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -61,6 +61,10 @@ const DEFAULT_BUTTONS = [
   { kind: 'weather', label: '天気', icon: '🌤️', tab: 'body', form: 'weather' },
 ]
 const FORMS = ['health', 'bowel', 'weather', 'pethealth']
+// v0.21.0 ボタンの色(本人「ボタンのカラーとかまで選べる」)。ボタンに color(下の key)。色そのものは style.css の .btn-c-<key>
+const BTN_COLORS = [['red', '赤'], ['orange', 'だいだい'], ['yellow', '黄'], ['lime', '黄緑'], ['green', '緑'], ['teal', '青緑'],
+  ['sky', '水色'], ['blue', '青'], ['purple', '紫'], ['pink', 'ピンク'], ['brown', '茶'], ['gray', '灰']].map(([key, label]) => ({ key, label }))
+const colorCls = (b) => (b && BTN_COLORS.some(c => c.key === b.color) ? ` btn-c-${b.color}` : '')
 // 時間の長さ(span: true のボタンは、押すと始まり、終わりを押すまで「続いているもの」になる)
 // 組: このボタンを押すと、続いている〇〇を終える(就寝→起床 など)
 const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume', 'out'], break: ['resume', 'out'],   // v0.19.6 本人「昼休みの押し忘れは退社で」
@@ -244,7 +248,7 @@ async function loadLists() {
   } catch { /* なくても動く */ }
 }
 // ボタンの見た目以外に持つもの(保存・読み込みで残す)
-const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(b.askFun ? { askFun: true } : {}), ...(b.askMood ? { askMood: true } : {}), ...(b.askWith != null ? { askWith: !!b.askWith } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
+const btnExtra = (b) => ({ ...(b.span ? { span: true } : {}), ...(b.askPlace ? { askPlace: true } : {}), ...(b.askMove ? { askMove: true } : {}), ...(b.askProject ? { askProject: true } : {}), ...(b.askFun ? { askFun: true } : {}), ...(b.askMood ? { askMood: true } : {}), ...(BTN_COLORS.some(c => c.key === b.color) ? { color: b.color } : {}), ...(b.askWith != null ? { askWith: !!b.askWith } : {}), ...(FORMS.includes(b.form) ? { form: b.form } : {}) })
 async function saveButtons(list, preset = PRESET) {
   BUTTONS = list; PRESET = preset; applyPresetNames()
   await putSetting('buttons', { buttons: list, preset, added: ADDED_LATER, placeAdded: true, spanAdded: true, updated_at: stamp(new Date()) })
@@ -923,7 +927,7 @@ function buildButtons() {
     text: t.label, onclick: () => { try { localStorage.setItem(TAB_KEY, t.key) } catch { /* */ } setDockDown(false); buildButtons() } })))
   const box = $('#buttons')
   const list = BUTTONS.filter(b => b.tab === tab)
-  box.replaceChildren(...list.map(b => h('button', { type: 'button', class: 'rec-btn', onclick: () => pressButton(b) },
+  box.replaceChildren(...list.map(b => h('button', { type: 'button', class: 'rec-btn' + colorCls(b), onclick: () => pressButton(b) },
     h('span', { class: 'rec-icon', 'aria-hidden': 'true', text: b.icon }),
     h('span', { class: 'rec-label' + (b.label.length > 5 ? ' long' : ''), text: b.label }))))
   if (!list.length) box.append(h('p', { class: 'muted no-btn', text: 'このタブにはボタンがありません。「ボタン設定」で足せます。' }))
@@ -2749,7 +2753,7 @@ function openButtonSettings() {
         tabSel.value = b.tab
         tabSel.addEventListener('change', () => { if (list.filter(x => x.tab === tabSel.value).length >= MAX_PER_TAB) { tabSel.value = b.tab; showToast(`そのタブは ${MAX_PER_TAB}個でいっぱいです`); return } b.tab = tabSel.value; paint(); showToast(`「${b.label}」を「${(TABS.find(x => x.key === b.tab) || {}).label}」へ移しました`) })
         const row = h('div', { class: 'bs-row' },
-          h('button', { type: 'button', class: 'bs-icon', 'aria-label': `${b.label}の絵を変える`, text: b.icon, onclick: () => { pickFor = pickFor === b.kind ? null : b.kind; paint() } }),
+          h('button', { type: 'button', class: 'bs-icon' + colorCls(b), 'aria-label': `${b.label}の絵を変える`, text: b.icon, onclick: () => { pickFor = pickFor === b.kind ? null : b.kind; paint() } }),
           name,
           h('div', { class: 'bs-ops' },
             h('button', { type: 'button', class: 'bs-op', 'aria-label': '上へ', text: '↑', disabled: i === 0, onclick: () => move(b, -1) }),
@@ -2759,6 +2763,9 @@ function openButtonSettings() {
               const at = list.indexOf(b)
               list = list.filter(x => x !== b); paint()
               showToast(`「${b.label || '新しいボタン'}」を消しました(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { list.splice(Math.min(at, list.length), 0, b); paint() } }]) } })),
+          h('div', { class: 'bs-color', role: 'group', 'aria-label': `${b.label}の色` }, h('span', { class: 'bs-color-q', text: '色' }),
+            h('button', { type: 'button', class: 'bs-sw none', 'aria-pressed': colorCls(b) ? 'false' : 'true', 'aria-label': '色なし', title: '色なし', text: '×', onclick: () => { delete b.color; paint() } }),
+            ...BTN_COLORS.map(c => h('button', { type: 'button', class: `bs-sw btn-c-${c.key}`, 'aria-pressed': b.color === c.key ? 'true' : 'false', 'aria-label': c.label, title: c.label, onclick: () => { b.color = c.key; paint() } }))),
           h('div', { class: 'bs-sub' }, h('label', { class: 'bs-ask' }, spanC, '時間の長さを記録する(終わりも押す)'), h('label', { class: 'bs-ask' }, askL, '押したら場所を測る'), h('label', { class: 'bs-ask' }, ask, '押したら移動手段を聞く'), h('label', { class: 'bs-ask' }, askF, '楽しかった度を付ける'), h('label', { class: 'bs-ask' }, askMd, 'ペットのご機嫌を聞く'), h('label', { class: 'bs-ask' }, askW, 'だれとを付ける'),
             PJ.ENABLED ? h('label', { class: 'bs-ask' }, askP, '押したら件名を聞く') : null, tabSel))
         sec.append(row)

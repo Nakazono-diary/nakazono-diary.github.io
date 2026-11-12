@@ -713,3 +713,35 @@ button, input, textarea { font: inherit; color: inherit; }
 .fpx-group > .pt-row { padding: 10px 10px 0; margin: 0; }
 .ph-field { margin-top: 12px; }
 .ph-field .ed-label { display: block; margin-bottom: 4px; }
+
+/* v0.21.0 ボタンの色 */
+.btn-c-red { --cbg: #fee2e2; --cfg: #991b1b; }
+@media (prefers-color-scheme: dark) { .btn-c-red { --cbg: #4c1d1d; --cfg: #fecaca; } }
+.btn-c-orange { --cbg: #ffedd5; --cfg: #9a3412; }
+@media (prefers-color-scheme: dark) { .btn-c-orange { --cbg: #4a2a14; --cfg: #fed7aa; } }
+.btn-c-yellow { --cbg: #fef3c7; --cfg: #854d0e; }
+@media (prefers-color-scheme: dark) { .btn-c-yellow { --cbg: #43381a; --cfg: #fde68a; } }
+.btn-c-lime { --cbg: #ecfccb; --cfg: #3f6212; }
+@media (prefers-color-scheme: dark) { .btn-c-lime { --cbg: #2d3a17; --cfg: #d9f99d; } }
+.btn-c-green { --cbg: #dcfce7; --cfg: #166534; }
+@media (prefers-color-scheme: dark) { .btn-c-green { --cbg: #173826; --cfg: #bbf7d0; } }
+.btn-c-teal { --cbg: #ccfbf1; --cfg: #115e59; }
+@media (prefers-color-scheme: dark) { .btn-c-teal { --cbg: #123735; --cfg: #99f6e4; } }
+.btn-c-sky { --cbg: #e0f2fe; --cfg: #075985; }
+@media (prefers-color-scheme: dark) { .btn-c-sky { --cbg: #13314a; --cfg: #bae6fd; } }
+.btn-c-blue { --cbg: #dbeafe; --cfg: #1e40af; }
+@media (prefers-color-scheme: dark) { .btn-c-blue { --cbg: #1b2a52; --cfg: #bfdbfe; } }
+.btn-c-purple { --cbg: #ede9fe; --cfg: #5b21b6; }
+@media (prefers-color-scheme: dark) { .btn-c-purple { --cbg: #2e2350; --cfg: #ddd6fe; } }
+.btn-c-pink { --cbg: #fce7f3; --cfg: #9d174d; }
+@media (prefers-color-scheme: dark) { .btn-c-pink { --cbg: #4a1a33; --cfg: #fbcfe8; } }
+.btn-c-brown { --cbg: #f3e5d8; --cfg: #6b3f1d; }
+@media (prefers-color-scheme: dark) { .btn-c-brown { --cbg: #3b2a1e; --cfg: #e7cdb4; } }
+.btn-c-gray { --cbg: #e5e7eb; --cfg: #374151; }
+@media (prefers-color-scheme: dark) { .btn-c-gray { --cbg: #2b2f36; --cfg: #d1d5db; } }
+.rec-btn[class*="btn-c-"], .bs-icon[class*="btn-c-"] { background: var(--cbg); color: var(--cfg); }
+.rec-btn[class*="btn-c-"]:active { background: var(--cfg); color: var(--cbg); }
+.bs-color { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; grid-column: 1 / -1; margin: 4px 0 2px; }
+.bs-color-q { font-size: 13px; font-weight: 700; color: var(--muted); margin-right: 2px; }
+.bs-sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line2); background: var(--cbg, var(--surface)); color: var(--muted); font-size: 14px; padding: 0; }
+.bs-sw[aria-pressed="true"] { outline: 3px solid var(--accent); outline-offset: 2px; }
