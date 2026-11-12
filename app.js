@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.20.1'
+const VERSION = '0.20.2'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1676,6 +1676,252 @@ function moveImportBox(onStart) {
   return wrap
 }
 
+// ---------- 印刷・PDF(v0.20.2。本人「印刷したいフォーマット、期間などを選択式」「サムネールなんか出して」) ----------
+// 期間と形と入れるものを選ぶ → 印刷用の紙(#print-root)を作って印刷の画面を出す。スマホの印刷の画面で「PDF に保存」も選べる。
+// 紙は @media print のときだけ見える(画面には出ない)。Android アプリ版は window.print が効かないので Printer(自前の小さな部品)で。
+const PRT_STYLES = [
+  { key: 'timeline', icon: '🕒', label: 'タイムライン', desc: '今の画面に近い形。時刻と記録が縦に並ぶ' },
+  { key: 'diary', icon: '📖', label: '日記帳', desc: '1日1ページ。文章と写真が大きめ' },
+  { key: 'table', icon: '📋', label: '一覧表', desc: '日付・時刻・できごとの表。見比べ向け' },
+  { key: 'md', icon: '📓', label: 'MD ノート', desc: '手書きのノートの形。1行1時間の罫線に書く' },
+]
+const PRT_PARTS = [
+  { key: 'text', label: '文章' }, { key: 'photos', label: '写真' }, { key: 'place', label: '場所' },
+  { key: 'move', label: '移動・乗りかえ' }, { key: 'health', label: '体調' }, { key: 'weather', label: '天気' }, { key: 'sum', label: '1日のまとめ' },
+]
+const PRT_KEY = 'diary.print'
+const prtLoad = () => { try { return JSON.parse(localStorage.getItem(PRT_KEY)) || {} } catch { return {} } }
+const prtSave = (v) => { try { localStorage.setItem(PRT_KEY, JSON.stringify(v)) } catch { /* */ } }
+const dayTitle = (day) => { const d = new Date(`${day}T12:00:00`); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日(${WEEKDAY[d.getDay()]})` }
+function prtRange(kind, base, from, to) {
+  if (kind === 'day') return [base, base]
+  if (kind === 'week') { const d = new Date(`${base}T12:00:00`); const mon = addDays(base, -((d.getDay() + 6) % 7)); return [mon, addDays(mon, 6)] }
+  if (kind === 'month') { const d = new Date(`${base}T12:00:00`); return [dayOf(new Date(d.getFullYear(), d.getMonth(), 1)), dayOf(new Date(d.getFullYear(), d.getMonth() + 1, 0))] }
+  return from <= to ? [from, to] : [to, from]
+}
+async function prtDays(from, to) {
+  const all = (await allEntries()).filter(e => e.day >= from && e.day <= to)
+  const map = new Map()
+  for (const e of all) { if (!map.has(e.day)) map.set(e.day, []); map.get(e.day).push(e) }
+  return [...map.keys()].sort().map(day => ({ day, list: map.get(day).sort((a, b) => (a.at < b.at ? -1 : 1)) }))
+}
+// 1つの記録を、紙に書く材料にする
+function prtLine(e, o) {
+  const k = kindInfo(e.kind) || {}
+  const sub = []
+  if (e.span && e.end) sub.push(`${spanNameOf(e) || ''} 〜${e.end.slice(0, 10) !== e.day ? '翌' : ''}${hm(e.end)}(${fmtDur(durMin(e.at, e.end))})`.trim())
+  if (o.move) { const lg = legSpans(e); if (lg.length) sub.push(lg.map(x => `${MOVE_BY[x.mode].icon}${MOVE_BY[x.mode].label} ${fmtDur(x.min)}`).join(' → ')) }
+  if (o.place && placeName(e)) sub.push(`📍 ${placeName(e)}`)
+  if (e.project && e.project.title) sub.push(`📁 ${e.project.title}${e.project.step ? ` / ${e.project.step}` : ''}`)
+  if (o.health && e.health) sub.push(...healthLines(e.health))
+  if (o.health && e.bowel) sub.push(bowelText(e.bowel))
+  if (o.weather && e.weather) sub.push(weatherText(e.weather))
+  if (e.fun) sub.push(`${FUN_FACES[e.fun - 1]} ${FUN_WORDS[e.fun - 1]}`)
+  return { time: hm(e.at), icon: e.icon || k.icon || '📝', label: e.label || k.label || 'メモ', sub: sub.filter(Boolean), text: o.text ? textOf(e) : '', photos: o.photos ? photosOf(e) : [] }
+}
+// 1日のまとめ(長さのある記録を呼び名ごとに足す)
+function prtSum(list) {
+  const tot = new Map()
+  for (const e of list) if (e.span && e.end) { const n = spanNameOf(e) || e.label; tot.set(n, (tot.get(n) || 0) + durMin(e.at, e.end)) }
+  return [...tot].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([n, m]) => `${n} ${fmtDur(m)}`).join(' ・ ')
+}
+async function prtImgs(ids, cls, max) {
+  const out = []
+  for (const pid of ids.slice(0, max)) {
+    const p = await getPhoto(pid)
+    if (p && p.blob) out.push(h('img', { class: cls, src: URL.createObjectURL(p.blob), alt: '' }))
+  }
+  return out
+}
+// 紙を作る。days = prtDays の結果
+async function prtBuild(style, days, o, title) {
+  const root = h('div', { class: `prt prt-${style}` })
+  if (style === 'table') {
+    const tb = h('tbody')
+    for (const d of days) {
+      d.list.forEach((e, i) => {
+        const L = prtLine(e, o)
+        tb.append(h('tr', { class: i === 0 ? 'prt-newday' : '' },
+          h('td', { class: 'prt-c-day', text: i === 0 ? dayTitle(d.day).replace(/^\d+年/, '') : '' }),
+          h('td', { class: 'prt-c-time', text: L.time }),
+          h('td', { class: 'prt-c-what', text: `${L.icon} ${L.label}` }),
+          h('td', { class: 'prt-c-sub', text: L.sub.join(' / ') }),
+          h('td', { class: 'prt-c-text', text: L.text })))
+      })
+      if (o.sum) { const sm = prtSum(d.list); if (sm) tb.append(h('tr', { class: 'prt-sumrow' }, h('td'), h('td', { colspan: '4', text: `まとめ: ${sm}` }))) }
+    }
+    root.append(h('h1', { class: 'prt-title', text: title }),
+      h('table', { class: 'prt-table' }, h('colgroup', {}, ...[13, 7, 15, 37, 28].map(w => h('col', { width: `${w}%` }))), h('thead', {}, h('tr', {}, ...['日付', '時刻', 'できごと', 'くわしく', '文章'].map(t => h('th', { text: t })))), tb))
+    return root
+  }
+  if (style === 'md') { for (const d of days) root.append(await prtMdPage(d, o)); return root }
+  if (style === 'timeline') root.append(h('h1', { class: 'prt-title', text: title }))
+  for (const d of days) {
+    const page = h('section', { class: 'prt-day' })
+    const weather = o.weather ? d.list.filter(e => e.weather).map(e => weatherText(e.weather)).filter(Boolean)[0] : ''
+    page.append(h('h2', { class: 'prt-dayhead' }, h('span', { text: dayTitle(d.day) }), weather ? h('span', { class: 'prt-wx', text: weather }) : null))
+    if (o.sum) { const sm = prtSum(d.list); if (sm) page.append(h('p', { class: 'prt-sum', text: `まとめ: ${sm}` })) }
+    if (style === 'diary') {
+      // 文章と写真のある記録を大きく、ほかは下に1行ずつ小さく
+      const big = d.list.filter(e => (o.text && textOf(e)) || (o.photos && photosOf(e).length))
+      for (const e of big) {
+        const L = prtLine(e, o)
+        page.append(h('article', { class: 'prt-entry' },
+          h('p', { class: 'prt-ehead', text: `${L.time} ${L.icon} ${L.label}` }),
+          L.text ? h('p', { class: 'prt-text', text: L.text }) : null,
+          ...(L.photos.length ? [h('div', { class: 'prt-photos big' }, ...await prtImgs(L.photos, 'prt-img', 4))] : [])))
+      }
+      page.append(h('h3', { class: 'prt-sub', text: 'この日の流れ' }),
+        h('ul', { class: 'prt-flow' }, ...d.list.map(e => { const L = prtLine(e, o); return h('li', {}, h('b', { text: L.time }), ` ${L.icon} ${L.label}${L.sub.length ? `  ${L.sub.join(' / ')}` : ''}`) })))
+    } else {
+      const ul = h('ul', { class: 'prt-tl' })
+      for (const e of d.list) {
+        const L = prtLine(e, o)
+        ul.append(h('li', {},
+          h('span', { class: 'prt-time', text: L.time }),
+          h('div', { class: 'prt-body' },
+            h('p', { class: 'prt-what', text: `${L.icon} ${L.label}` }),
+            ...L.sub.map(t => h('p', { class: 'prt-detail', text: t })),
+            L.text ? h('p', { class: 'prt-text', text: L.text }) : null,
+            ...(L.photos.length ? [h('div', { class: 'prt-photos' }, ...await prtImgs(L.photos, 'prt-img', 3))] : []))))
+      }
+      page.append(ul)
+    }
+    root.append(page)
+  }
+  return root
+}
+// MD ノートの形(v0.20.2。本人の手書きのノートに合わせる): 1日1ページ。上に【 月/日 】曜日と天気、右上に緑の小さなメモ(1日のまとめ)。
+// 罫線の1行が1時間(左に時刻の番号)。その時間の行に「8:00 出発 8:40 出社」と書き、長い時間(1時間半以上。睡眠は除く)は左に縦線。
+// 右に「今日の体調」。下の空いた行に文章。A5 のノートと A4 は形が同じなので、A4 に1日1ページで大きくした形になる。
+async function prtMdPage(d, o) {
+  const dt = new Date(`${d.day}T12:00:00`)
+  const wx = o.weather ? d.list.filter(e => e.weather).map(e => weatherText(e.weather)).filter(Boolean)[0] || '' : ''
+  const hourOf = (at) => Number(at.slice(11, 13))
+  const first = d.list.length ? hourOf(d.list[0].at) : 8
+  const startH = Math.min(first, 6), rows = []
+  for (let hh = startH; hh <= 24; hh++) rows.push({ hh, items: [], bar: false })
+  const rowOf = (hh) => rows[Math.max(0, Math.min(rows.length - 1, hh - startH))]
+  for (const e of d.list) {
+    const L = prtLine(e, o)
+    if ((e.health || e.weather || e.bowel) && ['health', 'weather', 'bowel'].includes((kindInfo(e.kind) || {}).form)) continue   // 天気は上、体調は右に書く
+    let t = `${Number(L.time.slice(0, 2))}:${L.time.slice(3)} ${L.label}`
+    const lg = o.move ? legSpans(e) : []
+    if (lg.length) t += `(${lg.map(x => MOVE_BY[x.mode].label).join('→')})`
+    if (o.place && placeName(e) && !lg.length) t += `(${placeName(e)})`
+    if (e.span && e.end && !isMoment(e)) t += ` 〜${hourOf(e.end) + (e.end.slice(0, 10) !== e.day ? 24 : 0)}:${e.end.slice(14, 16)}`
+    if (e.fun) t += ` ${FUN_FACES[e.fun - 1]}`
+    rowOf(hourOf(e.at)).items.push(t)
+    if (e.span && e.end && e.kind !== 'sleep' && durMin(e.at, e.end) >= 90) {
+      const h2 = Math.min(24, hourOf(e.end) + (e.end.slice(0, 10) !== e.day ? 24 : 0))
+      for (let hh = hourOf(e.at) + 1; hh <= h2; hh++) rowOf(hh).bar = true
+    }
+  }
+  const health = o.health ? d.list.flatMap(e => [...(e.health ? healthLines(e.health) : []), ...(e.bowel ? [bowelText(e.bowel)] : [])]) : []
+  const texts = o.text ? d.list.filter(e => textOf(e)).map(e => `${Number(hm(e.at).slice(0, 2))}:${hm(e.at).slice(3)} ${textOf(e)}`) : []
+  const photos = o.photos ? d.list.flatMap(e => photosOf(e)) : []
+  const sm = o.sum ? prtSum(d.list) : ''
+  return h('section', { class: 'prt-mdpage' },
+    h('div', { class: 'prt-md-head' },
+      h('span', { class: 'prt-md-date', text: `【 ${dt.getMonth() + 1}/${dt.getDate()} 】 ${WEEKDAY[dt.getDay()]}` }),
+      h('span', { class: 'prt-md-wx', text: wx })),
+    h('p', { class: 'prt-md-note', text: sm }),
+    h('div', { class: 'prt-md-grid' },
+      h('div', { class: 'prt-md-rows' }, ...rows.map(r => h('div', { class: 'prt-md-row' + (r.bar ? ' bar' : '') },
+        h('span', { class: 'prt-md-num', text: r.hh >= 8 ? String(r.hh) : '' }),
+        h('span', { class: 'prt-md-txt', text: r.items.join('　') })))),
+      health.length ? h('div', { class: 'prt-md-side' }, h('p', { class: 'prt-md-sidet', text: '今日の体調' }), ...health.map(t => h('p', { text: t }))) : null),
+    ...texts.map(t => h('p', { class: 'prt-md-free', text: t })),
+    ...[0, 1, 2].map(() => h('p', { class: 'prt-md-free' })),
+    ...(photos.length ? [h('div', { class: 'prt-photos' }, ...await prtImgs(photos, 'prt-img', 4))] : []))
+}
+// 紙を印刷の画面へ。写真が読み終わるのを待ってから
+async function prtGo(paper, name) {
+  document.getElementById('print-root')?.remove()
+  const holder = h('div', { id: 'print-root' }, paper)
+  document.body.append(holder)
+  await Promise.all([...holder.querySelectorAll('img')].map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r })))
+  if (isNativeApp()) { await window.Capacitor.nativePromise('Printer', 'print', { name }); return }
+  const done = () => { window.removeEventListener('afterprint', done); setTimeout(() => holder.remove(), 500) }
+  window.addEventListener('afterprint', done)
+  window.print()
+}
+function openPrint() {
+  const sheet = $('#sheet')
+  const saved = prtLoad()
+  const st = { range: saved.range || 'day', style: saved.style || 'timeline', parts: { text: true, photos: true, place: true, move: true, health: true, weather: true, sum: true, ...(saved.parts || {}) }, from: shownDay(), to: shownDay() }
+  const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+  const info = h('p', { class: 'prt-info', 'aria-live': 'polite' })
+  const thumbs = h('div', { class: 'prt-styles' })
+  const fromIn = h('input', { type: 'date', class: 'input small', value: st.from, 'aria-label': 'いつから' })
+  const toIn = h('input', { type: 'date', class: 'input small', value: st.to, 'aria-label': 'いつまで' })
+  const custom = h('div', { class: 'prt-custom' }, fromIn, h('span', { text: '〜' }), toIn)
+  const rangeRow = h('div', { class: 'prt-seg', role: 'group', 'aria-label': '期間' })
+  const goBtn = h('button', { type: 'button', class: 'primary-btn', text: '🖨 印刷する(PDF にも)' })
+  let days = [], seq = 0
+  const RANGES = [['day', '1日'], ['week', '1週間'], ['month', '1か月'], ['custom', '日付を選ぶ']]
+  const paintRange = () => {
+    rangeRow.replaceChildren(...RANGES.map(([k, t]) => h('button', { type: 'button', class: 'prt-segbtn', 'aria-pressed': st.range === k ? 'true' : 'false', text: t, onclick: () => { st.range = k; refresh() } })))
+    custom.hidden = st.range !== 'custom'
+  }
+  // 形のサムネイル: 本当の記録の最初の日を、小さくした紙で見せる
+  const paintThumbs = async () => {
+    const my = ++seq
+    const sample = days.length ? [days[0]] : []
+    const cards = []
+    for (const s of PRT_STYLES) {
+      const page = h('div', { class: 'prt-thumb-page' })
+      if (sample.length) page.append(await prtBuild(s.key, sample, { ...st.parts, photos: st.parts.photos }, '日記'))
+      else page.append(h('p', { class: 'prt-thumb-empty', text: '記録がありません' }))
+      cards.push(h('button', { type: 'button', class: 'prt-card', 'aria-pressed': st.style === s.key ? 'true' : 'false', onclick: () => { st.style = s.key; paintThumbsSel() } },
+        h('div', { class: 'prt-thumb', 'aria-hidden': 'true' }, page),
+        h('span', { class: 'prt-cname', text: `${s.icon} ${s.label}` }), h('span', { class: 'prt-cdesc', text: s.desc })))
+    }
+    if (my === seq) thumbs.replaceChildren(...cards)
+    requestAnimationFrame(() => thumbs.querySelectorAll('.prt-thumb').forEach(t => { t.firstChild.style.setProperty('--prt-scale', String(t.clientWidth / 794)) }))
+  }
+  const paintThumbsSel = () => { [...thumbs.children].forEach((c, i) => c.setAttribute('aria-pressed', PRT_STYLES[i].key === st.style ? 'true' : 'false')); prtSave({ range: st.range, style: st.style, parts: st.parts }) }
+  const refresh = async () => {
+    paintRange()
+    const [a, b] = prtRange(st.range, shownDay(), fromIn.value || shownDay(), toIn.value || shownDay())
+    days = await prtDays(a, b)
+    const n = days.reduce((x, d) => x + d.list.length, 0)
+    info.textContent = `${dayTitle(a)}${a !== b ? ` 〜 ${dayTitle(b)}` : ''} ・ 記録のある日 ${days.length}日 ・ 記録 ${n}件`
+    goBtn.disabled = !n
+    prtSave({ range: st.range, style: st.style, parts: st.parts })
+    paintThumbs()
+  }
+  fromIn.addEventListener('change', refresh); toIn.addEventListener('change', refresh)
+  const parts = h('div', { class: 'prt-parts' }, ...PRT_PARTS.map(pt => {
+    const c = h('input', { type: 'checkbox', checked: !!st.parts[pt.key] })
+    c.addEventListener('change', () => { st.parts[pt.key] = c.checked; refresh() })
+    return h('label', { class: 'prt-part' }, c, h('span', { text: pt.label }))
+  }))
+  goBtn.addEventListener('click', async () => {
+    goBtn.disabled = true
+    try {
+      const [a, b] = prtRange(st.range, shownDay(), fromIn.value, toIn.value)
+      const s = PRT_STYLES.find(x => x.key === st.style)
+      const title = `日記 ${dayTitle(a)}${a !== b ? ` 〜 ${dayTitle(b)}` : ''}`
+      await prtGo(await prtBuild(st.style, days, st.parts, title), `nikki-${a}${a !== b ? `_${b}` : ''}-${s.key}`)
+    } catch (err) { info.textContent = `印刷の画面を出せませんでした: ${err.message || err}` }
+    finally { goBtn.disabled = false }
+  })
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '印刷' },
+    h('div', { class: 'sheet-top' }, h('h2', { text: '🖨 印刷・PDF' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
+    h('div', { class: 'sheet-body' },
+      h('h3', { class: 'prt-h', text: '期間' }), rangeRow, custom,
+      h('p', { class: 'hint', text: `「1日」「1週間」「1か月」は、いま見ている日(${dayTitle(shownDay())})をもとにします。` }),
+      info,
+      h('h3', { class: 'prt-h', text: '形' }), thumbs,
+      h('h3', { class: 'prt-h', text: '入れるもの' }), parts,
+      h('p', { class: 'hint', text: '印刷の画面で、プリンターの代わりに「PDF に保存」を選ぶと PDF になります。体調や場所も入るので、紙・PDF の扱いに気をつけてください。' })),
+    h('div', { class: 'sheet-foot' }, goBtn)))
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+  refresh()
+}
+
 function openBackup() {
   const sheet = $('#sheet')
   const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
@@ -1738,6 +1984,10 @@ function openBackup() {
     h('div', { class: 'sheet-top' }, h('h2', { text: 'バックアップ' }),
       h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
     h('div', { class: 'sheet-body' },
+      h('section', { class: 'bk-card' },
+        h('h3', { text: '🖨 印刷・PDF' }),
+        h('p', { text: '期間(1日・1週間・1か月・日付を選ぶ)と形(タイムライン・日記帳・一覧表)を選んで、紙や PDF にします。' }),
+        h('button', { type: 'button', class: 'primary-btn', text: '印刷の画面を開く', onclick: openPrint })),
       moveExportCard(),
       h('section', { class: 'bk-card' },
         h('h3', { text: 'ファイルに書き出す' }),

@@ -612,3 +612,84 @@ button, input, textarea { font: inherit; color: inherit; }
 .mvx-welcome { margin-top: 24px; padding: 14px; border: 1px solid var(--line2); border-radius: 14px; background: var(--surface); }
 .mvx-welcome h3 { margin: 0 0 4px; font-size: 16px; }
 .mvx-imp .primary-btn, .mvx-imp .secondary-btn { width: 100%; flex: none; }
+
+/* v0.20.2 印刷・PDF: 選ぶ画面 */
+.prt-h { margin: 16px 0 6px; font-size: 15px; color: var(--muted); }
+.prt-seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.prt-segbtn { min-height: 48px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); color: var(--text); font: inherit; font-weight: 700; font-size: 14px; }
+.prt-segbtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.prt-custom { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.prt-info { margin: 8px 0 0; font-size: 14px; font-weight: 600; }
+.prt-styles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.prt-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 8px; border-radius: 12px; border: 2px solid var(--line2); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.prt-card[aria-pressed="true"] { border-color: var(--accent); background: var(--btn-soft); }
+.prt-thumb { position: relative; width: 100%; aspect-ratio: 210 / 297; overflow: hidden; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.prt-thumb-page { position: absolute; left: 0; top: 0; width: 794px; height: 1123px; transform-origin: 0 0; transform: scale(var(--prt-scale, .13)); padding: 40px; box-sizing: border-box; pointer-events: none; }
+.prt-thumb-empty { font-size: 60px; color: #999; }
+.prt-cname { font-size: 14px; font-weight: 700; }
+.prt-cdesc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.prt-parts { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.prt-part { display: flex; align-items: center; gap: 6px; min-height: 40px; font-size: 15px; }
+.prt-part input { width: 20px; height: 20px; }
+#print-root { display: none; }
+
+/* 紙(印刷のときと、サムネイルの中)。色は紙に合わせて固定 */
+.prt { color: #111; background: #fff; font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 11pt; line-height: 1.5; }
+.prt-title { font-size: 15pt; margin: 0 0 8pt; border-bottom: 2px solid #333; padding-bottom: 4pt; }
+.prt-dayhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8pt; flex-wrap: wrap; font-size: 13pt; margin: 12pt 0 4pt; padding: 3pt 6pt; background: #f1f1f1; border-left: 5px solid #F07A1E; }
+.prt-wx { font-size: 10pt; font-weight: 400; color: #444; }
+.prt-sum { margin: 2pt 0 6pt; font-size: 10pt; color: #333; }
+.prt-tl { list-style: none; margin: 0; padding: 0; }
+.prt-tl li { display: grid; grid-template-columns: 44pt 1fr; gap: 6pt; padding: 3pt 0; border-bottom: 1px solid #e3e3e3; break-inside: avoid; }
+.prt-time { font-weight: 700; font-variant-numeric: tabular-nums; }
+.prt-what { margin: 0; font-weight: 700; }
+.prt-detail { margin: 0; font-size: 9.5pt; color: #444; }
+.prt-text { margin: 2pt 0 0; white-space: pre-wrap; }
+.prt-photos { display: flex; gap: 4pt; flex-wrap: wrap; margin-top: 3pt; }
+.prt-img { height: 30mm; width: auto; max-width: 45mm; object-fit: cover; border-radius: 2pt; }
+.prt-photos.big .prt-img { height: 55mm; max-width: 80mm; }
+.prt-diary .prt-day { break-after: page; }
+.prt-diary .prt-day:last-child { break-after: auto; }
+.prt-diary .prt-dayhead { font-size: 16pt; margin-top: 0; }
+.prt-entry { margin: 6pt 0 10pt; break-inside: avoid; }
+.prt-ehead { margin: 0; font-weight: 700; color: #b45309; }
+.prt-diary .prt-text { font-size: 12pt; line-height: 1.8; }
+.prt-sub { font-size: 11pt; margin: 12pt 0 3pt; color: #555; border-bottom: 1px dashed #aaa; }
+.prt-flow { list-style: none; margin: 0; padding: 0; font-size: 9.5pt; columns: 2; column-gap: 14pt; }
+.prt-flow li { break-inside: avoid; }
+.prt-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+.prt-table th { background: #333; color: #fff; padding: 3pt; text-align: left; }
+.prt-table td { border-bottom: 1px solid #ddd; padding: 2pt 3pt; vertical-align: top; }
+.prt-table tr { break-inside: avoid; }
+.prt-newday td { border-top: 2px solid #888; }
+.prt-c-day { white-space: nowrap; font-weight: 700; }
+.prt-c-time { font-variant-numeric: tabular-nums; }
+.prt-c-text { white-space: pre-wrap; }
+.prt-sumrow td { color: #555; font-size: 9pt; background: #fafafa; }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  html, body { background: #fff !important; }
+  body > *:not(#print-root) { display: none !important; }
+  #print-root { display: block !important; }
+}
+.prt-table { table-layout: fixed; }
+.prt-table th { background: none; color: #111; border-bottom: 2px solid #333; }
+.prt-styles { grid-template-columns: repeat(2, 1fr); }
+/* MD ノート */
+.prt-mdpage { break-after: page; position: relative; font-size: 11pt; }
+.prt-mdpage:last-child { break-after: auto; }
+.prt-md-head { display: flex; justify-content: space-between; align-items: baseline; padding: 4pt 2pt 6pt; font-size: 15pt; letter-spacing: .05em; }
+.prt-md-date { font-weight: 600; }
+.prt-md-wx { font-size: 12pt; margin-right: 18%; }
+.prt-md-note { margin: 0 0 6pt; min-height: 1.4em; text-align: right; color: #3a9a6a; font-size: 10pt; }
+.prt-md-grid { display: grid; grid-template-columns: 1fr auto; gap: 8pt; }
+.prt-md-side { position: absolute; right: 2pt; top: 64pt; width: 34%; font-size: 10pt; background: #fff; padding-left: 6pt; }
+.prt-md-sidet { font-weight: 700; margin: 0 0 2pt; }
+.prt-md-side p { margin: 0; }
+.prt-md-rows { border-top: 1px solid #c9c9c9; }
+.prt-md-row { display: grid; grid-template-columns: 18pt 1fr; min-height: 22pt; border-bottom: 1px solid #c9c9c9; align-items: end; padding-bottom: 2pt; position: relative; }
+.prt-md-row.bar .prt-md-txt { border-left: 1.6pt solid #333; margin-left: 6pt; padding-left: 6pt; align-self: stretch; display: flex; align-items: flex-end; }
+.prt-md-num { font-size: 7.5pt; color: #888; text-align: right; padding-right: 4pt; align-self: center; }
+.prt-md-txt { padding-left: 12pt; line-height: 1.35; }
+.prt-md-free { margin: 0; padding: 4pt 2pt 2pt 30pt; border-bottom: 1px solid #c9c9c9; min-height: 22pt; white-space: pre-wrap; }
