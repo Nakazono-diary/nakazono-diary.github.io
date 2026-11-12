@@ -590,3 +590,4 @@ button, input, textarea { font: inherit; color: inherit; }
 .fp-label { font-size: 15px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .fp-warn { margin: 4px 0 0; color: #b91c1c; font-weight: 700; font-size: 14px; }
 .fp-warn:empty { display: none; }
+.fp-actions { margin-top: 18px; }

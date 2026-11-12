@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.19.8'
+const VERSION = '0.19.9'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1931,6 +1931,29 @@ function presetCards(current, onPick) {
     h('span', { class: 'pz-icon', text: p.icon }), h('span', { class: 'pz-text' }, h('strong', { text: p.label }), h('small', { text: p.desc })))))
 }
 // 最初に開いたとき(ボタンをまだ一度も保存していなくて、記録もないとき)に、ひな形を選んでもらう
+// v0.19.8・v0.19.9: ひな形のボタンをタブごとにチェックで並べる(はじめに・ボタン設定の選び直しで共通)
+// on は kind の Set。押すたびに on を変えて onChange を呼ぶ。
+function buttonChecklist(all, on, onChange) {
+  return TABS.map(t => {
+    const bs = all.filter(b => b.tab === t.key)
+    if (!bs.length) return null
+    return h('section', { class: 'fp-group' },
+      h('h3', { class: 'fp-tab', text: t.label }),
+      h('div', { class: 'fp-list' }, ...bs.map(b => {
+        const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': on.has(b.kind) ? 'true' : 'false' },
+          h('span', { class: 'fp-check', 'aria-hidden': 'true' }),
+          h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: b.icon }),
+          h('span', { class: 'fp-label', text: b.label }))
+        el.onclick = () => {
+          if (on.has(b.kind)) on.delete(b.kind); else on.add(b.kind)
+          el.setAttribute('aria-pressed', on.has(b.kind) ? 'true' : 'false')
+          onChange()
+        }
+        return el
+      })))
+  }).filter(Boolean)
+}
+
 async function maybeFirstPreset() {
   if (await getSetting('buttons')) return
   if ((await allEntries()).length) return
@@ -1956,24 +1979,7 @@ async function maybeFirstPreset() {
       go.disabled = on.size === 0
       count.textContent = on.size ? '' : '1つ以上選んでください'
     }
-    const groups = TABS.map(t => {
-      const bs = all.filter(b => b.tab === t.key)
-      if (!bs.length) return null
-      return h('section', { class: 'fp-group' },
-        h('h3', { class: 'fp-tab', text: t.label }),
-        h('div', { class: 'fp-list' }, ...bs.map(b => {
-          const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': 'true' },
-            h('span', { class: 'fp-check', 'aria-hidden': 'true' }),
-            h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: b.icon }),
-            h('span', { class: 'fp-label', text: b.label }))
-          el.onclick = () => {
-            if (on.has(b.kind)) on.delete(b.kind); else on.add(b.kind)
-            el.setAttribute('aria-pressed', on.has(b.kind) ? 'true' : 'false')
-            paintCount()
-          }
-          return el
-        })))
-    }).filter(Boolean)
+    const groups = buttonChecklist(all, on, paintCount)
     go.onclick = async () => {
       if (!on.size) return
       await saveButtons(all.filter(b => on.has(b.kind)), p.key)
@@ -2116,27 +2122,46 @@ function openButtonSettings() {
       body.append(h('p', { class: 'hint', text: 'いまの暮らしに近いものを選んでください。これまでの記録は、記録したときの名前のまま残ります。' }), presetCards(PRESET, (p) => { pzPick = p; paint() }))
       return
     }
+    // v0.19.9: 本人「選び直しのときもボタンを選べるように(暮らしが変わったとき)」→ はじめにと同じチェックの一覧
     const p = pzPick, next = p.make()
-    const missing = next.filter(b => !list.some(x => x.kind === b.kind))
+    if (!pzOn || pzOn.key !== p.key) pzOn = { key: p.key, set: new Set(next.map(b => b.kind)) }
+    const on = pzOn.set
+    const replaceBtn = h('button', { type: 'button', class: 'primary-btn' })
+    const addBtn = h('button', { type: 'button', class: 'secondary-btn' })
+    const missingOf = () => next.filter(b => on.has(b.kind) && !list.some(x => x.kind === b.kind))
+    const paintBtns = () => {
+      replaceBtn.textContent = on.size ? `選んだボタンで置き換える(${on.size}個)` : '1つ以上選んでください'
+      replaceBtn.disabled = !on.size
+      const m = missingOf().length
+      addBtn.textContent = m ? `選んだ中で足りないボタンだけ足す(${m}個)` : '足りないボタンはありません'
+      addBtn.disabled = !m
+    }
     const apply = (mode) => {
       const before = list.map(b => ({ ...b })), beforePreset = newPreset
-      if (mode === 'replace') list = next
-      else for (const b of missing) {
+      if (mode === 'replace') list = next.filter(b => on.has(b.kind))
+      else for (const b of missingOf()) {
         if (list.filter(x => x.tab === b.tab).length >= MAX_PER_TAB) continue
         let i = -1; list.forEach((x, j) => { if (x.tab === b.tab) i = j })
         list.splice(i < 0 ? list.length : i + 1, 0, b)
       }
-      newPreset = p.key; pzOpen = false; pzPick = null; paint()
+      newPreset = p.key; pzOpen = false; pzPick = null; pzOn = null; paint()
       showToast(`「${p.label}」のひな形にしました(保存するまで決まりません)`, [{ label: '元に戻す', fn: () => { list = before; newPreset = beforePreset; paint() } }])
     }
+    replaceBtn.onclick = () => apply('replace')
+    addBtn.onclick = () => apply('add')
+    paintBtns()
     body.append(h('section', { class: 'pz-confirm' },
       h('p', { class: 'pz-title', text: `${p.icon} ${p.label}` }),
-      h('p', { class: 'hint', text: `このひな形のボタン: ${next.filter(b => ['flow', 'do'].includes(b.tab)).map(b => b.label).join('・')} など` }),
-      h('button', { type: 'button', class: 'primary-btn', text: '今のボタンを置き換える', onclick: () => apply('replace') }),
-      h('p', { class: 'hint', text: '自分で足したボタンや、名前を変えたボタンも、このひな形の形にもどります。' }),
-      h('button', { type: 'button', class: 'secondary-btn', disabled: !missing.length, text: missing.length ? `足りないボタンだけ足す(${missing.length}個)` : '足りないボタンはありません', onclick: () => apply('add') }),
-      h('p', { class: 'hint', text: '今のボタンはそのまま。このひな形にあって今ないボタンだけを、それぞれのタブの最後に足します。' })))
+      h('p', { class: 'hint', text: '使うボタンにチェックを付けてください。使わないものは押して外します。' }),
+      h('button', { type: 'button', class: 'link-btn', text: '← ほかのひな形を選ぶ', onclick: () => { pzPick = null; pzOn = null; paint() } })),
+      ...buttonChecklist(next, on, paintBtns),
+      h('section', { class: 'pz-confirm fp-actions' },
+        replaceBtn,
+        h('p', { class: 'hint', text: '今のボタンを、チェックしたボタンだけにします。自分で足したボタンや、名前を変えたボタンも、このひな形の形にもどります。' }),
+        addBtn,
+        h('p', { class: 'hint', text: '今のボタンはそのまま。チェックしたボタンのうち、今ないものだけを、それぞれのタブの最後に足します。' })))
   }
+  let pzOn = null
   let newPreset = PRESET
   // だれとの一覧の編集(v0.18.6)
   const withEditor = () => {
