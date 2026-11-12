@@ -694,3 +694,12 @@ button, input, textarea { font: inherit; color: inherit; }
 .prt-md-txt { padding-left: 12pt; line-height: 1.35; }
 .prt-md-free { margin: 0; padding: 4pt 2pt 2pt 30pt; border-bottom: 1px solid #c9c9c9; min-height: 22pt; white-space: pre-wrap; }
 .bs-cand.elsewhere { opacity: .5; border-style: dashed; }
+
+/* v0.20.7 はじめに: ほかの候補 */
+.fpx { margin-top: 22px; padding-top: 10px; border-top: 1px dashed var(--line2); }
+.fpx-group { margin-top: 8px; border: 1px solid var(--line2); border-radius: 12px; background: var(--surface); }
+.fpx-group > summary { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 12px; font-weight: 700; cursor: pointer; }
+.fpx-group[open] > summary { border-bottom: 1px solid var(--line2); }
+.fpx-group > .fp-list { padding: 10px; }
+.fpx-tab { font-size: 13px; font-weight: 600; color: var(--muted); }
+.fpx-cnt { margin-left: auto; font-size: 13px; color: var(--accent); }

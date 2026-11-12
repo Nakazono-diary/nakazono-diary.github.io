@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.20.6'
+const VERSION = '0.20.7'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -144,11 +144,14 @@ const CANDIDATES = [
     ['mahjong', '麻雀', '🀄'], ['shogi', '将棋・囲碁', '♟️', false], ['nap', '昼寝', '😴', false]] },
   // v0.19.3 本人「美容院も」「女性目線ならネイル・まつエク・エステ」「家中心なら育児」→ 全部。最初の画面には出さず、ここから選んだ人だけ
   // play: false = 統計の「遊び」に数えない、fun: false = 楽しかった度を聞かない
-  { group: '💅 身だしなみ', play: false, fun: false, items: [['hairsalon', '美容院', '💇'], ['barbershop', '床屋', '💈'], ['nail', 'ネイル', '💅'], ['matsuek', 'まつエク', '👁️'],
+  { group: '💅 身だしなみ', tab: 'errand', play: false, fun: false, items: [['hairsalon', '美容院', '💇'], ['barbershop', '床屋', '💈'], ['nail', 'ネイル', '💅'], ['matsuek', 'まつエク', '👁️'],
     ['esthe', 'エステ', '🧖‍♀️'], ['mayu', 'まゆ毛', '✨'], ['massage', 'マッサージ', '💆'], ['seitai', '整体', '🦴'], ['datsumo', '脱毛', '🪒']] },
-  { group: '👶 子育て', play: false, fun: false, items: [['childcare', '育児', '👶', false], ['junyu', '授乳', '🍼', false], ['omutsu', 'おむつ', '🧷', false, false],
+  { group: '👶 子育て', tab: 'do', play: false, fun: false, items: [['childcare', '育児', '👶', false], ['junyu', '授乳', '🍼', false], ['omutsu', 'おむつ', '🧷', false, false],
     ['nekashi', '寝かしつけ', '💤', false], ['pickup', '送り迎え', '🚗']] },
-].map(g => ({ group: g.group, play: g.play !== false, fun: g.fun !== false, items: g.items.map(([kind, label, icon, place, span]) => ({ kind, label, icon, place: place !== false, span: span !== false })) }))
+].map(g => ({ group: g.group, tab: g.tab || 'play', play: g.play !== false, fun: g.fun !== false, items: g.items.map(([kind, label, icon, place, span]) => ({ kind, label, icon, place: place !== false, span: span !== false })) }))
+// v0.20.7: 候補はまとまりごとに入るタブを決める(本人「前は遊びとか項目選択してて固定なようにしてなかった?」)。
+// 遊びの候補 → 遊び、身だしなみ → 用事、子育て → すること。足したあとで「タブを変える」で移すのは自由
+const candToButton = (g, x) => ({ kind: x.kind, label: x.label, icon: x.icon, tab: g.tab, ...(x.span ? { span: true } : {}), ...(g.fun ? { askFun: true } : {}), ...(x.place ? { askPlace: true } : {}) })
 // 統計の「遊び」に数える候補(身だしなみ・子育ては入れない)
 const CAND_KINDS = CANDIDATES.filter(g => g.play).flatMap(g => g.items.map(x => x.kind))
 // 1つのタブに置けるボタンの数(v0.18.4。本人「最大ボタン数決めないとね」)
@@ -2413,20 +2416,49 @@ async function maybeFirstPreset() {
   const step2 = (p) => {
     const all = p.make().map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) }))
     const on = new Set(all.map(b => b.kind))
+    const extra = new Map()   // 候補から選んだもの kind → ボタン
     const count = h('span')
     const go = h('button', { type: 'button', class: 'primary-btn' })
+    const chosen = () => [...all.filter(b => on.has(b.kind)), ...extra.values()]
     const paintCount = () => {
-      go.textContent = `これで始める(${on.size}個)`
-      go.disabled = on.size === 0
-      count.textContent = on.size ? '' : '1つ以上選んでください'
+      const list = chosen()
+      const over = TABS.find(t => list.filter(b => b.tab === t.key).length > MAX_PER_TAB)
+      go.textContent = `これで始める(${list.length}個)`
+      go.disabled = list.length === 0 || !!over
+      count.textContent = !list.length ? '1つ以上選んでください' : over ? `「${over.label}」が ${MAX_PER_TAB}個をこえています。いくつか外してください` : ''
     }
     const groups = buttonChecklist(all, on, paintCount)
+    // v0.20.7: その下に、ほかの候補も(最初はチェックなし。まとまりごとに押すと開く)。本人「最初の段階である程度選択できるように」
+    const presetKinds = new Set(all.map(b => b.kind))
+    const more = CANDIDATES.map(g => {
+      const items = g.items.filter(x => !presetKinds.has(x.kind))
+      if (!items.length) return null
+      const tabName = (TABS.find(z => z.key === g.tab) || {}).label
+      const cnt = h('span', { class: 'fpx-cnt' })
+      const paintCnt = () => { const n = items.filter(x => extra.has(x.kind)).length; cnt.textContent = n ? `${n}個 選択` : '' }
+      const det = h('details', { class: 'fpx-group' },
+        h('summary', {}, h('span', { text: `${g.group}` }), h('span', { class: 'fpx-tab', text: `→ ${tabName}` }), cnt),
+        h('div', { class: 'fp-list' }, ...items.map(x => {
+          const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': 'false' },
+            h('span', { class: 'fp-check', 'aria-hidden': 'true' }), h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: x.icon }), h('span', { class: 'fp-label', text: x.label }))
+          el.onclick = () => {
+            if (extra.has(x.kind)) extra.delete(x.kind); else extra.set(x.kind, candToButton(g, x))
+            el.setAttribute('aria-pressed', extra.has(x.kind) ? 'true' : 'false'); paintCnt(); paintCount()
+          }
+          return el
+        })))
+      return det
+    }).filter(Boolean)
+    if (more.length) groups.push(h('section', { class: 'fpx' },
+      h('h3', { class: 'fp-tab', text: 'ほかにも使いたいものがあれば' }),
+      h('p', { class: 'hint', text: '押すと開きます。チェックしたものが、→ のタブに入ります。あとから「ボタン設定」でも足せます。' }), ...more))
     go.onclick = async () => {
-      if (!on.size) return
-      await saveButtons(all.filter(b => on.has(b.kind)), p.key)
+      const list = chosen()
+      if (!list.length) return
+      await saveButtons(list, p.key)
       buildButtons()
       close()
-      showToast(`「${p.label}」のボタン ${on.size}個で始めます。あとから「ボタン設定」でいつでも足したり変えたりできます`)
+      showToast(`「${p.label}」のボタン ${list.length}個で始めます。あとから「ボタン設定」でいつでも足したり変えたりできます`)
     }
     paintCount()
     sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '使うボタン' },
@@ -2483,11 +2515,12 @@ function openButtonSettings() {
     for (const t of TABS.filter(x => x.key === showTab)) {
       const same = list.filter(b => b.tab === t.key)
       const sec = h('section', { class: 'bs-tab' })
-      sec.append(h('button', { type: 'button', class: 'secondary-btn bs-cand-open', 'aria-expanded': candOpen ? 'true' : 'false', text: candOpen ? '候補を閉じる' : `＋ 候補から「${t.label}」に足す`, onclick: () => { candOpen = !candOpen; paint() } }))
-      if (candOpen) {
+      const groups = CANDIDATES.filter(g => g.tab === t.key)
+      if (groups.length) sec.append(h('button', { type: 'button', class: 'secondary-btn bs-cand-open', 'aria-expanded': candOpen ? 'true' : 'false', text: candOpen ? '候補を閉じる' : `＋ 候補から「${t.label}」に足す`, onclick: () => { candOpen = !candOpen; paint() } }))
+      if (candOpen && groups.length) {
         sec.append(h('div', { class: 'bs-cands' },
           h('p', { class: 'hint', text: same.length >= MAX_PER_TAB ? `1つのタブに置けるのは ${MAX_PER_TAB}個までです。使わないボタンを消すか、別のタブ(「タブを変える」)へ移してください。` : `押すと、このタブの最後に足します(色の付いたものは足してあるもの。もう一度押すと外します。1つのタブに ${MAX_PER_TAB}個まで・いま ${same.length}個)。名前や絵は、足したあとで変えられます。` }),
-          ...CANDIDATES.map(g => h('div', { class: 'bs-cand-group' }, h('p', { class: 'bs-cand-title', text: g.group }),
+          ...groups.map(g => h('div', { class: 'bs-cand-group' }, h('p', { class: 'bs-cand-title', text: g.group }),
             h('div', { class: 'bs-cand-chips' }, ...g.items.map(x => {
               // v0.20.6: 色を付けるのは、このタブに足してあるものだけ。ほかのタブにあるものは薄く「(遊び)」と出し、押しても外さない(本人「バグ」)
               const inTab = list.find(b => b.kind === x.kind)
@@ -2507,7 +2540,7 @@ function openButtonSettings() {
                     return
                   }
                   if (list.filter(b => b.tab === t.key).length >= MAX_PER_TAB) return
-                  list.push({ kind: x.kind, label: x.label, icon: x.icon, tab: t.key, ...(x.span ? { span: true } : {}), ...(g.fun ? { askFun: true } : {}), ...(x.place ? { askPlace: true } : {}) }); paint() } })
+                  list.push(candToButton(g, x)); paint() } })
             }))))))
       }
       same.forEach((b, i) => {
