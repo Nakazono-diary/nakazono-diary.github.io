@@ -759,7 +759,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .tb-sub { font-size: 13px; color: var(--muted); }
 
 /* v0.21.2 自分で作る */
-.mk-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; list-style: none; margin: 0 0 12px; padding: 0; counter-reset: mk; }
+.mk-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; list-style: none; margin: 0 0 12px; padding: 0; counter-reset: mk; }
 .mk-steps li { counter-increment: mk; font-size: 13px; text-align: center; padding: 6px 2px; border-radius: 8px; background: var(--bg); color: var(--muted); font-weight: 700; }
 .mk-steps li::before { content: counter(mk) " "; }
 .mk-steps li.on { background: var(--accent); color: #fff; }
@@ -774,3 +774,11 @@ button, input, textarea { font: inherit; color: inherit; }
 .mk-phone { border: 2px solid var(--line2); border-radius: 18px; padding: 10px; background: var(--surface); }
 .mk-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
 .mk-grid .rec-btn { cursor: default; }
+/* v0.21.5 自分で作る: タブごとの一覧・小見出し。中身が長いときに欄が押しつぶされないように */
+.sheet-body > * { flex-shrink: 0; }
+.mk-head { margin: 6px 0 0; font-size: 17px; }
+.mk-tabgrp > summary { font-size: 17px; }
+.mk-sec { padding: 4px 10px 10px; }
+.mk-sec + .mk-sec { border-top: 1px dashed var(--line2); }
+.mk-sub { margin: 8px 2px 8px; font-size: 14px; color: var(--muted); }
+.mk-sec > .pt-row { margin: 0 0 8px; }

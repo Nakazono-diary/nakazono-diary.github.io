@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.4'
+const VERSION = '0.21.5'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -2573,19 +2573,21 @@ async function openPlaces() {
 // ---------- ボタン設定(足す・名前と絵を変える・並べ替える・消す・移動手段を聞く) ----------
 // ひな形を選ぶカード(v0.19.1)
 // ---------- 自分で作る(v0.21.2。本人「自分で作るは項目設定からいろいろ細かく設定できる仕様に。ボタンのカラーとかまで」「タブの変更も入れよう」) ----------
-// ① タブ ② ボタンを選ぶ ③ 仕上げ ④ 見本 → これで始める。はじめに(from: 'first')と、ボタン設定の「ひな形から選び直す」→ 自分で作る(from: 'settings'、いまのボタンから始める)
-function allButtonsUniverse(petType) {
-  const groups = []
+// v0.21.5 本人「入力手順がわかりにくい」「タブに何があるかもわからないのに決められない」「各項目にすべてのボタンで一覧を」
+// → ① ボタンを選ぶ(タブごとに、そのタブに入れられるボタンを全部。もとのボタン・ひな形のボタン・候補を小見出しで) ② タブと仕上げ ③ 見本 → これで始める。
+// はじめに(from: 'first')と、ボタン設定の「ひな形から選び直す」→ 自分で作る(from: 'settings'、いまのボタンから始める)
+function buttonsByTab(petType) {
+  const map = {}
   const seen = new Set()
-  const add = (title, home, list) => {
+  const add = (title, home, list, pet = false) => {
     const items = list.filter(b => b && !seen.has(b.kind)).map(b => { seen.add(b.kind); return { ...b, tab: home } })
-    if (items.length) groups.push({ title, home, items })
+    if (items.length) (map[home] = map[home] || []).push({ title, home, items, pet })
   }
-  for (const t of BASE_TABS) add(t.label, t.key, DEFAULT_BUTTONS.filter(b => b.tab === t.key))
-  add('すること(ひな形から)', 'do', Object.values(XB))
+  for (const t of BASE_TABS) add('いつもの', t.key, DEFAULT_BUTTONS.filter(b => b.tab === t.key))
+  add('🎒 学生・🏠 家のこと', 'do', Object.values(XB))
   for (const x of PRIMARY) add(`${x.icon} ${x.label}`, 'do', x.items.map(k => PB[k]))
-  for (const g of CANDIDATES) add(g.group, g.tab, candItems(g, petType).map(x => candToButton(g, x)))
-  return groups
+  for (const g of CANDIDATES) add(g.group.replace('(最初からあるもの)', ''), g.tab, candItems(g, petType).map(x => candToButton(g, x)), g.tab === 'pet')
+  return map
 }
 function openBuilder({ from = 'first', onBack = null } = {}) {
   const sheet = $('#sheet')
@@ -2602,14 +2604,22 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
   const has = (kind) => sel.some(b => b.kind === kind)
   const snap = () => JSON.stringify([tabs, sel, petType])
   const first = snap()
-  const STEPS = ['タブ', 'ボタン', '仕上げ', '見本']
-  const go = (n) => { step = n; msg.textContent = ''; paint(); body.scrollTop = 0 }
+  const STEPS = ['ボタン', 'タブと仕上げ', '見本']
+  const go = (n) => {
+    if (step === 1 && n === 2) {   // ボタンを選んだタブだけ「使う」に
+      for (const t of tabs) { if (sel.some(b => b.tab === t.key)) delete t.hidden; else t.hidden = true }
+      if (!visible().length) delete tabs[0].hidden
+    }
+    step = n; msg.textContent = ''; paint(); body.scrollTop = 0
+  }
   const homeOf = (home) => (tabs.some(t => t.key === home && !t.hidden) ? home : (visible()[0] || tabs[0]).key)
+  const cnt = (k) => sel.filter(b => b.tab === k).length
 
-  // ① タブ
+  // ② のうえ: タブ(名前・並び・使う/使わない・自分のタブ)
   const stepTabs = () => {
     const own = tabs.filter(t => !BASE_TABS.some(b => b.key === t.key))
-    const out = [h('p', { class: 'hint', text: '使うタブを選び、名前と並びを決めます。自分のタブも3つまで作れます(たとえば「釣り」「仕事2」)。' })]
+    const out = [h('h3', { class: 'mk-head', text: '🗂 タブ' }),
+      h('p', { class: 'hint', text: 'ボタンを選んだタブだけ「使う」になっています。名前や並びを変えたり、自分のタブ(3つまで)を作れます。' })]
     tabs.forEach((t, i) => {
       const base = BASE_TABS.find(b => b.key === t.key)
       const name = h('input', { class: 'input bs-name', value: t.label, maxlength: '10', placeholder: base ? base.label : 'タブの名前', 'aria-label': 'タブの名前' })
@@ -2617,51 +2627,70 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
       const use = h('input', { type: 'checkbox' }); use.checked = !t.hidden
       use.addEventListener('change', () => {
         if (!use.checked && visible().length <= 1) { use.checked = true; showToast('1つは使うタブを残してください'); return }
-        if (use.checked) delete t.hidden; else t.hidden = true; paint()
+        if (use.checked) delete t.hidden
+        else {
+          t.hidden = true
+          const n = cnt(t.key)
+          if (n) { const to = visible()[0]; sel.forEach(b => { if (b.tab === t.key) b.tab = to.key }); showToast(`「${t.label}」のボタン ${n}個は「${to.label}」へ移しました`) }
+        }
+        paint()
       })
       const mv = (d) => { const j = i + d; if (j < 0 || j >= tabs.length) return; [tabs[i], tabs[j]] = [tabs[j], tabs[i]]; paint() }
       out.push(h('div', { class: 'bs-row tb-row' + (t.hidden ? ' tb-hidden' : '') },
-        h('label', { class: 'tb-use' }, use, h('span', { text: t.hidden ? '使わない' : '使う' })), name,
+        h('label', { class: 'tb-use' }, use, h('span', { text: t.hidden ? '使わない' : `${cnt(t.key)}個` })), name,
         h('div', { class: 'bs-ops' },
           h('button', { type: 'button', class: 'bs-op', 'aria-label': '上へ', text: '↑', disabled: i === 0, onclick: () => mv(-1) }),
           h('button', { type: 'button', class: 'bs-op', 'aria-label': '下へ', text: '↓', disabled: i === tabs.length - 1, onclick: () => mv(1) }),
           base ? null : h('button', { type: 'button', class: 'bs-op del', text: '消す', onclick: () => {
-            sel.forEach(b => { if (b.tab === t.key) b.tab = homeOf('do') }); tabs = tabs.filter(x => x !== t); paint() } }))))
+            tabs = tabs.filter(x => x !== t); sel.forEach(b => { if (b.tab === t.key) b.tab = homeOf('do') }); paint() } }))))
     })
     out.push(h('button', { type: 'button', class: 'secondary-btn bs-add', disabled: own.length >= MAX_OWN_TABS, text: own.length >= MAX_OWN_TABS ? `自分のタブは ${MAX_OWN_TABS}つまでです` : '＋ 自分のタブを作る',
       onclick: () => { tabs.push({ key: 't-' + newId().slice(0, 8), label: '' }); paint(); requestAnimationFrame(() => { const a = body.querySelectorAll('.tb-row .bs-name'); a[a.length - 1].focus() }) } }))
     return out
   }
-  // ② ボタンを選ぶ
+  // ① ボタンを選ぶ(タブごとに全部)
   const stepPick = () => {
     const search = h('input', { type: 'search', class: 'input', placeholder: '🔎 探す(たとえば「カフェ」)', value: q, 'aria-label': 'ボタンを探す' })
-    const listBox = h('div')
+    const listBox = h('div', { class: 'mk-list' })
+    const btnOf = (b, tabKey) => {
+      const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': has(b.kind) ? 'true' : 'false' },
+        h('span', { class: 'fp-check', 'aria-hidden': 'true' }), h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: b.icon }), h('span', { class: 'fp-label', text: b.label }))
+      el.onclick = () => {
+        if (has(b.kind)) {
+          const at = sel.findIndex(x => x.kind === b.kind), old = sel[at]
+          sel = sel.filter(x => x.kind !== b.kind)
+          if (old.kind.startsWith('c-')) showToast(`「${old.label}」を外しました`, [{ label: '元に戻す', fn: () => { sel.splice(at, 0, old); paintList() } }])
+        } else sel.push({ ...b, tab: tabKey })
+        paintList()
+      }
+      return el
+    }
     const paintList = () => {
-      const groups = allButtonsUniverse(petType)
+      const map = buttonsByTab(petType)
+      const known = new Set(Object.values(map).flat().flatMap(g => g.items.map(b => b.kind)))
       const word = q.trim()
-      listBox.replaceChildren(...groups.map(g => {
-        const items = word ? g.items.filter(b => b.label.includes(word)) : g.items
-        if (!items.length) return null
-        const n = g.items.filter(b => has(b.kind)).length
-        const det = h('details', { class: 'fpx-group' },
-          h('summary', {}, h('span', { text: g.title }), h('span', { class: 'fpx-tab', text: `→ ${tabName(homeOf(g.home))}` }), h('span', { class: 'fpx-cnt', text: n ? `${n}個 選択` : '' })),
-          g.home === 'pet' && !word ? petTypeRow(petType, (nt) => {
-            const old = petType; petType = nt
-            for (const b of sel) if (b.tab !== undefined && b.icon === petIcon(b.kind, old, b.icon)) b.icon = petIcon(b.kind, nt, b.icon)
-            paintList() }) : null,
-          h('div', { class: 'fp-list' }, ...items.map(b => {
-            const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': has(b.kind) ? 'true' : 'false' },
-              h('span', { class: 'fp-check', 'aria-hidden': 'true' }), h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: b.icon }), h('span', { class: 'fp-label', text: b.label }))
-            el.onclick = () => {
-              if (has(b.kind)) sel = sel.filter(x => x.kind !== b.kind)
-              else sel.push({ ...b, tab: homeOf(g.home) })
-              paintList()
-            }
-            return el
-          })))
-        if (word || det.dataset.open === '1') det.open = true
-        det.addEventListener('toggle', () => { OPEN[g.title] = det.open })
-        if (OPEN[g.title]) det.open = true
+      listBox.replaceChildren(...tabs.map(t => {
+        const secs = [...(map[t.key] || [])]
+        const mine = sel.filter(b => b.tab === t.key && !known.has(b.kind))
+        if (mine.length) secs.push({ title: '自分で作ったボタン', items: mine })
+        const parts = secs.map(g => {
+          const items = word ? g.items.filter(b => b.label.includes(word)) : g.items
+          if (!items.length) return null
+          return h('div', { class: 'mk-sec' },
+            secs.length > 1 ? h('h4', { class: 'mk-sub', text: g.title }) : null,
+            g.pet && !word ? petTypeRow(petType, (nt) => {
+              const old = petType; petType = nt
+              for (const b of sel) if (b.icon === petIcon(b.kind, old, b.icon)) b.icon = petIcon(b.kind, nt, b.icon)
+              paintList() }) : null,
+            h('div', { class: 'fp-list' }, ...items.map(b => btnOf(b, t.key))))
+        }).filter(Boolean)
+        if (!parts.length) return null
+        const n = cnt(t.key)
+        const det = h('details', { class: 'fpx-group mk-tabgrp' },
+          h('summary', {}, h('span', { text: t.label || '(名前なし)' }), h('span', { class: 'fpx-tab', text: `${secs.reduce((a, g) => a + g.items.length, 0)}個から` }), h('span', { class: 'fpx-cnt', text: n ? `${n}個 選択` : '' })),
+          ...parts)
+        if (word || OPEN[t.key]) det.open = true
+        det.addEventListener('toggle', () => { if (!word) OPEN[t.key] = det.open })
         return det
       }).filter(Boolean))
       if (!listBox.children.length) listBox.append(h('p', { class: 'hint', text: '見つかりませんでした。下の「新しいボタン」で作れます。' }))
@@ -2670,18 +2699,20 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
     const count = h('p', { class: 'mk-count' })
     search.addEventListener('input', () => { q = search.value; paintList() })
     const newName = h('input', { class: 'input', maxlength: '12', placeholder: '新しいボタンの名前', 'aria-label': '新しいボタンの名前' })
-    const newTab = h('select', { class: 'input bs-tabsel', 'aria-label': '入れるタブ' }, ...visible().map(t => h('option', { value: t.key, text: t.label || '(名前なし)' })))
+    const newTab = h('select', { class: 'input bs-tabsel', 'aria-label': '入れるタブ' }, ...tabs.map(t => h('option', { value: t.key, text: t.label || '(名前なし)' })))
+    newTab.value = 'do'
     const addNew = () => {
       const label = newName.value.trim()
       if (!label) { newName.focus(); return }
       sel.push({ kind: 'c-' + newId().slice(0, 8), label, icon: '⭐', tab: newTab.value })
+      OPEN[newTab.value] = true
       newName.value = ''; showToast(`「${label}」を「${tabName(newTab.value)}」に足しました。絵や色は次の画面で`); paintList()
     }
     newName.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') addNew() })
     paintList()
-    return [h('p', { class: 'hint', text: '使うボタンにチェックを付けます。押すと開くまとまりから選ぶか、上の欄で探してください。→ のタブに入ります(次の画面で変えられます)。' }),
+    return [h('p', { class: 'hint', text: 'タブを押すと、そのタブに入れられるボタンが全部出ます。使うボタンにチェックを付けてください。' }),
       search, count, listBox,
-      h('section', { class: 'mvx-welcome' }, h('h3', { text: '＋ 新しいボタンを作る' }),
+      h('section', { class: 'mvx-welcome' }, h('h3', { text: '＋ 一覧にないボタンを作る' }),
         h('div', { class: 'mk-new' }, newName, newTab, h('button', { type: 'button', class: 'secondary-btn', text: '足す', onclick: addNew })))]
   }
   // ③ 仕上げる
@@ -2690,12 +2721,12 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
     if (!vt.some(t => t.key === editTab)) editTab = (vt.find(t => sel.some(b => b.tab === t.key)) || vt[0]).key
     // 隠したタブに入っているボタンは、使うタブへ移す
     sel.forEach(b => { if (!vt.some(t => t.key === b.tab)) b.tab = vt[0].key })
-    const out = [h('p', { class: 'hint', text: 'タブごとに、並び・名前・絵・色・動きを決めます。絵を押すと絵を選べます。' }),
+    const out = [...stepTabs(), h('h3', { class: 'mk-head', text: '🎨 ボタン' }), h('p', { class: 'hint', text: 'タブごとに、並び・名前・絵・色・動きを決めます。絵を押すと絵を選べます。' }),
       h('div', { class: 'tabs bs-tabs', role: 'tablist' }, ...vt.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === editTab ? 'true' : 'false',
         text: `${t.label || '(名前なし)'} ${sel.filter(b => b.tab === t.key).length}`, onclick: () => { editTab = t.key; pickIcon = null; paint() } })))]
     const same = sel.filter(b => b.tab === editTab)
     if (same.length > MAX_PER_TAB) out.push(h('p', { class: 'fp-warn', text: `このタブは ${same.length}個です。1つのタブは ${MAX_PER_TAB}個までなので、外すか別のタブへ移してください。` }))
-    if (!same.length) out.push(h('p', { class: 'hint', text: 'このタブにはまだボタンがありません。前の画面で選ぶか、ほかのタブから「タブ」で移せます。' }))
+    if (!same.length) out.push(h('p', { class: 'hint', text: 'このタブにはまだボタンがありません。前の画面で選ぶか、ほかのタブのボタンの「動き・タブ」で移せます。' }))
     same.forEach((b, i) => {
       const name = h('input', { class: 'input bs-name', value: b.label, maxlength: '12', 'aria-label': `${b.label}の名前` })
       name.addEventListener('input', () => { b.label = name.value })
@@ -2741,12 +2772,12 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
   }
   const finish = async () => {
     tabs.forEach(t => { t.label = (t.label || '').trim() })
-    if (tabs.some(t => !t.label && !BASE_TABS.some(b => b.key === t.key))) { go(1); msg.textContent = '名前が空のタブがあります'; return false }
+    if (tabs.some(t => !t.label && !BASE_TABS.some(b => b.key === t.key))) { go(2); msg.textContent = '名前が空のタブがあります'; return false }
     sel.forEach(b => { b.label = (b.label || '').trim() })
-    if (!sel.length) { go(2); msg.textContent = 'ボタンを1つ以上選んでください'; return false }
-    if (sel.some(b => !b.label)) { go(3); msg.textContent = '名前が空のボタンがあります'; return false }
+    if (!sel.length) { go(1); msg.textContent = 'ボタンを1つ以上選んでください'; return false }
+    if (sel.some(b => !b.label)) { go(2); msg.textContent = '名前が空のボタンがあります'; return false }
     const over = visible().find(t => sel.filter(b => b.tab === t.key).length > MAX_PER_TAB)
-    if (over) { editTab = over.key; go(3); msg.textContent = `「${over.label}」が ${MAX_PER_TAB}個をこえています`; return false }
+    if (over) { editTab = over.key; go(2); msg.textContent = `「${over.label}」が ${MAX_PER_TAB}個をこえています`; return false }
     for (const t of tabs) if (!t.hidden && !sel.some(b => b.tab === t.key)) t.hidden = true   // ボタンのないタブは使わないに
     if (!tabs.some(t => !t.hidden)) delete tabs[0].hidden
     await saveTabs(tabs)
@@ -2761,14 +2792,14 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
   const tryClose = () => guardedClose(snap, first, finish, leave, from === 'first')
   const OPEN = {}
   const paint = () => {
-    title.textContent = `✏️ 自分で作る(${step}/4)`
+    title.textContent = `✏️ 自分で作る(${step}/3)`
     const keep = body.scrollTop
     body.replaceChildren(h('ol', { class: 'mk-steps' }, ...STEPS.map((s, i) => h('li', { class: i + 1 === step ? 'on' : i + 1 < step ? 'done' : '', text: s }))),
-      ...(step === 1 ? stepTabs() : step === 2 ? stepPick() : step === 3 ? stepFinish() : stepPreview()), msg)
-    if (step !== 2) requestAnimationFrame(() => { body.scrollTop = keep })
+      ...(step === 1 ? stepPick() : step === 2 ? stepFinish() : stepPreview()), msg)
+    if (step !== 1) requestAnimationFrame(() => { body.scrollTop = keep })
     foot.replaceChildren(
       h('button', { type: 'button', class: 'secondary-btn', text: step === 1 ? (from === 'first' ? '◀ ひな形にもどる' : '◀ やめる') : '◀ もどる', onclick: () => (step === 1 ? tryClose() : go(step - 1)) }),
-      h('button', { type: 'button', class: 'primary-btn', text: step === 4 ? `これで始める(${sel.length}個)` : '次へ ▶', onclick: () => (step === 4 ? finish() : go(step + 1)) }))
+      h('button', { type: 'button', class: 'primary-btn', text: step === 3 ? `これで始める(${sel.length}個)` : '次へ ▶', onclick: () => (step === 3 ? finish() : go(step + 1)) }))
   }
   sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '自分で作る' },
     h('div', { class: 'sheet-top' }, title, h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: tryClose })),
