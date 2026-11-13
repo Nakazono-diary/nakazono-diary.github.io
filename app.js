@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.6'
+const VERSION = '0.21.7'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -87,17 +87,17 @@ const colorCls = (b) => (b && BTN_COLORS.some(c => c.key === b.color) ? ` btn-c-
 // 時間の長さ(span: true のボタンは、押すと始まり、終わりを押すまで「続いているもの」になる)
 // 組: このボタンを押すと、続いている〇〇を終える(就寝→起床 など)
 const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume', 'out'], break: ['resume', 'out'],   // v0.19.6 本人「昼休みの押し忘れは退社で」
-  goout: ['back', 'home'], trip: ['reach', 'arrive', 'home', 'back'], sail: ['portin', 'home'] }   // v0.21.3 出港 → 帰港
+  goout: ['back', 'home'], trip: ['reach', 'arrive', 'home', 'back'], sail: ['portin', 'home'], launch: ['kikan'] }   // v0.21.3 出港 → 帰港
 // 長さの呼び名(就寝の長さは「睡眠」など)
-const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務', goout: '外出', trip: '移動', sail: '出漁' }
+const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務', goout: '外出', trip: '移動', sail: '出漁', launch: '宇宙滞在' }
 // 記録の長さの呼び名。出社の組は押したときの呼び名(sname。v0.19.1 ひな形で「学校」「仕事」に変わるため)を使う
 const spanNameOf = (e) => (e && e.sname) || SPAN_NAME[e.kind]
 // v0.19.6 本人「出社と呼べるのは出社したときじゃないのかな」→ 出社・退社・出発(登校・下校・出勤・退勤・仕事始め)は「その瞬間」のボタン。
 // カードと左の時刻は押した時刻だけ。続いているあいだは「勤務中・〇分」、終わったら長さ(勤務・移動)は終わらせた側のカードに出す。
 // 就寝・食事・入浴・休憩・移動ボタンなど「していること」のボタンは今までどおり「〜」で長さを出す(本人「就寝は睡眠時間を計るうえでいい」)。
-const MOMENT_KINDS = new Set(['arrive', 'out', 'leave', 'sail'])
+const MOMENT_KINDS = new Set(['arrive', 'out', 'leave', 'sail', 'launch'])
 const isMoment = (e) => !!(e && e.span && MOMENT_KINDS.has(e.kind))
-const ONGOING_WORD = { 勤務: '勤務中', 仕事: '仕事中', 学校: '学校にいます', 移動: '移動中', 出漁: '漁に出ています' }
+const ONGOING_WORD = { 勤務: '勤務中', 仕事: '仕事中', 学校: '学校にいます', 移動: '移動中', 出漁: '漁に出ています', 宇宙滞在: '宇宙にいます' }
 const isMoveMoment = (e) => isMoment(e) && spanNameOf(e) === '移動'   // v0.19.7: 出発・退社のあとの移動は別の帯に
 const ongoingWord = (e) => (isMoment(e) ? ONGOING_WORD[spanNameOf(e)] || `${spanNameOf(e)}中` : '続いています')
 // 昼休み・休憩の時間(勤務の実働を出すため。render で今日と前の日の分を入れる)
@@ -230,6 +230,14 @@ const PB = Object.fromEntries([
   ['sail', '出港', '⚓'], ['gyo', '漁', '🐟'], ['netcare', '網の手入れ', '🕸️'], ['portin', '帰港', '🛳️', true, false], ['mizuage', '水揚げ', '🦀'],
   ['seri', 'せり', '🔔'], ['boatcare', '船の整備', '🔧'], ['yoshoku', '養殖の世話', '🦪'],
   ['feeding', 'えさやり', '🌾'], ['milking', '搾乳', '🥛'], ['barnclean', '畜舎のそうじ', '🧹'], ['graze', '放牧', '🐄'],
+  // v0.21.7 本人「トラックの運転手・パイロット・警官・消防士や救命士は?」「宇宙飛行士とか(笑)」→ 職種のひな形だけで使うボタン
+  ['tenko', '点呼', '📋', false, false], ['tsumikomi', '積み込み', '📦'], ['unten', '運転', '🚚'], ['nioroshi', '荷下ろし', '📥'], ['shachuhaku', '車中泊', '🛏️'],
+  ['kyuyu', '給油', '⛽', true, false], ['sensha', '洗車', '🧽'],
+  ['briefing', 'ブリーフィング', '🗺️', false], ['jomu', '乗務', '✈️'], ['stay', 'ステイ', '🏨'], ['sim', '訓練(シミュレーター)', '🕹️'], ['shintai', '身体検査', '🩺'],
+  ['patrolcar', 'パトロール', '🚓'], ['ritsuban', '立番', '🧍'], ['jiken', '事件対応', '🚨'], ['shorui', '書類', '📝', false], ['kunren', '訓練', '🎯'],
+  ['shutsudo', '火災出動', '🚒'], ['kyukyu', '救急出動', '🚑'], ['hansou', '病院へ搬送', '🏥'], ['tenken', '点検', '🔧', false], ['kamin', '仮眠', '😴', false],
+  ['launch', '打ち上げ', '🚀', false], ['jikken', '実験', '🧪', false], ['spacefit', '運動', '🚴', false], ['eva', '船外活動', '👨‍🚀', false],
+  ['koshin', '地球と交信', '📡', false], ['kikan', '帰還', '🪂', false, false],
   ['yamashigoto', '山仕事', '🌲'], ['bassai', '伐採', '🪓'], ['shokurin', '植林', '🌳'], ['shitakusa', '下草刈り', '🌿'], ['edauchi', '枝打ち', '✂️'], ['makiwari', '薪割り', '🪵'],
 ].map(([kind, label, icon, place, span]) => [kind, { kind, label, icon, ...(span !== false ? { span: true } : {}), ...(place !== false ? { askPlace: true } : {}) }]))
 const PRIMARY = [
@@ -237,6 +245,14 @@ const PRIMARY = [
   { key: 'fish', icon: '🐟', label: '漁業', desc: '出港・漁・帰港・水揚げ', items: ['sail', 'gyo', 'netcare', 'portin', 'mizuage', 'seri', 'boatcare', 'yoshoku'] },
   { key: 'stock', icon: '🐄', label: '畜産', desc: 'えさやり・搾乳・放牧', items: ['feeding', 'milking', 'barnclean', 'graze', 'patrol', 'shukka'] },
   { key: 'forest', icon: '🌲', label: '林業', desc: '山仕事・伐採・植林', items: ['yamashigoto', 'bassai', 'shokurin', 'shitakusa', 'edauchi', 'makiwari'] },
+]
+// 職種ごとのボタン(自分で作るの一覧の小見出し)
+const JOB_GROUPS = [
+  { icon: '🚚', label: '運転・配送', items: ['tenko', 'tsumikomi', 'unten', 'nioroshi', 'shachuhaku', 'kyuyu', 'sensha'] },
+  { icon: '✈️', label: 'パイロット', items: ['briefing', 'jomu', 'stay', 'sim', 'shintai'] },
+  { icon: '👮', label: '警察', items: ['patrolcar', 'ritsuban', 'jiken', 'shorui', 'kunren'] },
+  { icon: '🚒', label: '消防・救急', items: ['shutsudo', 'kyukyu', 'hansou', 'kunren', 'tenken', 'kamin'] },
+  { icon: '🚀', label: '宇宙飛行士', items: ['launch', 'jikken', 'spacefit', 'eva', 'koshin', 'kikan'] },
 ]
 const pbtn = (kind, tab, over = {}) => ({ ...(DEFAULT_BUTTONS.find(b => b.kind === kind) || XB[kind] || PB[kind]), tab, ...over })
 // どのひな形にも入れるもの(遊び・用事・外出・体調)
@@ -260,6 +276,21 @@ const PRESETS = [
   { key: 'primary', icon: '🌾', label: '農業・漁業など', desc: '農業・漁業・畜産・林業から選ぶ', work: '仕事', pick: true,
     make: (picked = PRIMARY.map(x => x.key)) => [...flowOf('wake', 'leave', 'reach', 'home', 'sleep', 'meal', 'bath', 'lunch', 'break', 'resume'),
       ...doOf(...[...new Set(PRIMARY.filter(x => picked.includes(x.key)).flatMap(x => x.items))]), ...PRESET_TAIL()] },
+  { key: 'driver', icon: '🚚', label: '運転・配送', desc: '点呼・積み込み・運転・荷下ろし・車中泊', work: '勤務',
+    make: () => [...flowOf('wake', 'leave', 'reach', ['arrive', { label: '出勤', icon: '⏰' }], ['out', { label: '退勤', icon: '🌃' }], 'home', 'sleep', 'meal', 'bath'),
+      ...doOf('tenko', 'tsumikomi', 'unten', 'nioroshi', 'break', 'resume', 'shachuhaku', 'kyuyu', 'sensha'), ...PRESET_TAIL()] },
+  { key: 'pilot', icon: '✈️', label: 'パイロット', desc: 'ショーアップ・乗務・ステイ・訓練', work: '勤務',
+    make: () => [...flowOf('wake', 'leave', 'reach', ['arrive', { label: 'ショーアップ', icon: '🧑‍✈️' }], ['out', { label: '退勤', icon: '🌃' }], 'home', 'sleep', 'meal', 'bath'),
+      ...doOf('briefing', 'jomu', 'break', 'resume', 'stay', 'sim', 'shintai'), ...PRESET_TAIL()] },
+  { key: 'police', icon: '👮', label: '警察', desc: '当番入り・当番明け・パトロール・事件対応', work: '当番',
+    make: () => [...flowOf('wake', 'leave', 'reach', ['arrive', { label: '当番入り', icon: '👮' }], ['out', { label: '当番明け', icon: '🌅' }], 'home', 'sleep', 'meal', 'bath'),
+      ...doOf('patrolcar', 'ritsuban', 'jiken', 'shorui', 'kunren', 'break', 'resume'), ...PRESET_TAIL()] },
+  { key: 'fire', icon: '🚒', label: '消防・救急', desc: '当番入り・当番明け・出動・搬送・訓練', work: '当番',
+    make: () => [...flowOf('wake', 'leave', 'reach', ['arrive', { label: '当番入り', icon: '🚒' }], ['out', { label: '当番明け', icon: '🌅' }], 'home', 'sleep', 'meal', 'bath'),
+      ...doOf('shutsudo', 'kyukyu', 'hansou', 'kunren', 'tenken', 'kamin', 'break', 'resume'), ...PRESET_TAIL()] },
+  { key: 'astro', icon: '🚀', label: '宇宙飛行士', desc: '打ち上げ・実験・船外活動・帰還(遊び心で)', work: '勤務',
+    make: () => [...flowOf(['wake', { askPlace: false }], ['sleep', { label: '寝袋', icon: '🛌' }], 'meal'),
+      ...doOf('launch', 'jikken', 'spacefit', 'eva', 'koshin', 'kikan', 'break', 'resume'), ...DEFAULT_BUTTONS.filter(b => b.tab === 'body').map(b => ({ ...b }))] },
   { key: 'custom', icon: '✏️', label: '自分で作る', desc: 'タブ・ボタン・色・並びまで、全部自分で決める', work: '勤務',
     make: () => [...flowOf('wake', 'leave', 'reach', 'home', 'sleep', 'meal', 'bath'), ...DEFAULT_BUTTONS.filter(b => b.tab === 'body').map(b => ({ ...b }))] },
 ]
@@ -2586,6 +2617,7 @@ function buttonsByTab(petType) {
   for (const t of BASE_TABS) add('いつもの', t.key, DEFAULT_BUTTONS.filter(b => b.tab === t.key))
   add('🎒 学生・🏠 家のこと', 'do', Object.values(XB))
   for (const x of PRIMARY) add(`${x.icon} ${x.label}`, 'do', x.items.map(k => PB[k]))
+  for (const x of JOB_GROUPS) add(`${x.icon} ${x.label}`, 'do', x.items.map(k => PB[k]))
   for (const g of CANDIDATES) add(g.group.replace('(最初からあるもの)', ''), g.tab, candItems(g, petType).map(x => candToButton(g, x)), g.tab === 'pet')
   return map
 }
