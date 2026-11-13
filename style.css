@@ -782,3 +782,9 @@ button, input, textarea { font: inherit; color: inherit; }
 .mk-sec + .mk-sec { border-top: 1px dashed var(--line2); }
 .mk-sub { margin: 8px 2px 8px; font-size: 14px; color: var(--muted); }
 .mk-sec > .pt-row { margin: 0 0 8px; }
+/* v0.21.6 自分で作る: 職種 */
+.mk-jobrow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mk-job { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 64px; padding: 6px 4px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.mk-job span:first-child { font-size: 24px; }
+.mk-job[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--btn-soft); }
+.fpx-cnt.over { color: var(--danger, #c0392b); }

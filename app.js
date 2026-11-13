@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.5'
+const VERSION = '0.21.6'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -2589,12 +2589,20 @@ function buttonsByTab(petType) {
   for (const g of CANDIDATES) add(g.group.replace('(最初からあるもの)', ''), g.tab, candItems(g, petType).map(x => candToButton(g, x)), g.tab === 'pet')
   return map
 }
+// v0.21.6 本人「自分で作るで職種の選択もできるように」→ ① ボタンのいちばん上に職種(いくつでも)。選ぶと、その職種のひな形のボタンにチェックが付く。
+// 出社・退社の名前(登校・出勤など)は、あとに選んだ職種のものにする。農業などは4つに分けて選べる
+const JOBS = [
+  ...PRESETS.filter(p => !['custom', 'primary'].includes(p.key)).map(p => ({ key: p.key, icon: p.icon, label: p.label, preset: p.key, make: () => p.make() })),
+  ...PRIMARY.map(x => ({ key: 'pr-' + x.key, icon: x.icon, label: x.label, preset: 'primary', make: () => presetOf('primary').make([x.key]) })),
+]
 function openBuilder({ from = 'first', onBack = null } = {}) {
   const sheet = $('#sheet')
   const closeSheet = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
   let tabs = (from === 'settings' ? TABS : BASE_TABS).map(t => ({ ...t }))
   let sel = (from === 'settings' ? BUTTONS : presetOf('custom').make()).map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) }))
   let step = 1, q = '', petType = PET_TYPE, editTab = null, pickIcon = null
+  let jobs = []                // 選んだ職種(選んだ順)
+  const jobAdded = new Map()   // kind → その職種で足したもの(Set)
   const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite' })
   const body = h('div', { class: 'sheet-body' })
   const title = h('h2')
@@ -2602,7 +2610,7 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
   const visible = () => tabs.filter(t => !t.hidden)
   const tabName = (k) => (tabs.find(t => t.key === k) || {}).label || '?'
   const has = (kind) => sel.some(b => b.kind === kind)
-  const snap = () => JSON.stringify([tabs, sel, petType])
+  const snap = () => JSON.stringify([tabs, sel, petType, jobs])
   const first = snap()
   const STEPS = ['ボタン', 'タブと仕上げ', '見本']
   const go = (n) => {
@@ -2653,8 +2661,9 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
     const search = h('input', { type: 'search', class: 'input', placeholder: '🔎 探す(たとえば「カフェ」)', value: q, 'aria-label': 'ボタンを探す' })
     const listBox = h('div', { class: 'mk-list' })
     const btnOf = (b, tabKey) => {
+      const cur = sel.find(x => x.kind === b.kind) || b   // 選んであれば、いまの名前(登校など)で見せる
       const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': has(b.kind) ? 'true' : 'false' },
-        h('span', { class: 'fp-check', 'aria-hidden': 'true' }), h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: b.icon }), h('span', { class: 'fp-label', text: b.label }))
+        h('span', { class: 'fp-check', 'aria-hidden': 'true' }), h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: cur.icon }), h('span', { class: 'fp-label', text: cur.label }))
       el.onclick = () => {
         if (has(b.kind)) {
           const at = sel.findIndex(x => x.kind === b.kind), old = sel[at]
@@ -2687,7 +2696,7 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
         if (!parts.length) return null
         const n = cnt(t.key)
         const det = h('details', { class: 'fpx-group mk-tabgrp' },
-          h('summary', {}, h('span', { text: t.label || '(名前なし)' }), h('span', { class: 'fpx-tab', text: `${secs.reduce((a, g) => a + g.items.length, 0)}個から` }), h('span', { class: 'fpx-cnt', text: n ? `${n}個 選択` : '' })),
+          h('summary', {}, h('span', { text: t.label || '(名前なし)' }), h('span', { class: 'fpx-tab', text: `${secs.reduce((a, g) => a + g.items.length, 0)}個から` }), h('span', { class: 'fpx-cnt' + (n > MAX_PER_TAB ? ' over' : ''), text: n > MAX_PER_TAB ? `${n}個(${MAX_PER_TAB}個まで)` : n ? `${n}個 選択` : '' })),
           ...parts)
         if (word || OPEN[t.key]) det.open = true
         det.addEventListener('toggle', () => { if (!word) OPEN[t.key] = det.open })
@@ -2710,7 +2719,53 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
     }
     newName.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') addNew() })
     paintList()
-    return [h('p', { class: 'hint', text: 'タブを押すと、そのタブに入れられるボタンが全部出ます。使うボタンにチェックを付けてください。' }),
+    // 職種(いくつでも)。選ぶとそのひな形のボタンにチェックが付き、外すとその職種で足したボタンだけ外す
+    const NAMED = ['arrive', 'out']
+    const toggleJob = (j) => {
+      if (jobs.includes(j.key)) {
+        jobs = jobs.filter(k => k !== j.key)
+        let n = 0
+        for (const [kind, by] of [...jobAdded]) {
+          if (!by.delete(j.key) || by.size) continue
+          jobAdded.delete(kind); sel = sel.filter(b => b.kind !== kind); n++
+        }
+        // 名前は残っている職種のうち、あとに選んだものへ
+        for (const kind of NAMED) {
+          const b = sel.find(x => x.kind === kind); if (!b) continue
+          const last = [...jobs].reverse().map(k => JOBS.find(z => z.key === k).make().find(x => x.kind === kind)).find(Boolean)
+          if (last) { for (const k of ['span', 'askPlace', 'askMove']) delete b[k]; Object.assign(b, { label: last.label, icon: last.icon, ...btnExtra(last) }) }
+        }
+        showToast(`「${j.label}」を外しました${n ? `(ボタン ${n}個を外しました)` : ''}`)
+      } else {
+        jobs.push(j.key)
+        let n = 0
+        const list = j.make()
+        list.forEach((b, i) => {
+          const cur = sel.find(x => x.kind === b.kind)
+          if (!cur) {
+            // 職種の並びのとおり、前のボタンのすぐ後ろに入れる(なければ後ろへ)
+            const nb = { kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) }
+            let at = -1
+            for (let k = i - 1; k >= 0 && at < 0; k--) if (list[k].tab === b.tab) at = sel.findIndex(x => x.kind === list[k].kind)
+            if (at < 0) sel.push(nb); else sel.splice(at + 1, 0, nb)
+            n++; (jobAdded.get(b.kind) || jobAdded.set(b.kind, new Set()).get(b.kind)).add(j.key)
+          } else {
+            if (jobAdded.has(b.kind)) jobAdded.get(b.kind).add(j.key)
+            if (NAMED.includes(b.kind)) { for (const k of ['span', 'askPlace', 'askMove']) delete cur[k]; Object.assign(cur, { label: b.label, icon: b.icon, ...btnExtra(b) }) }
+          }
+        })
+        showToast(`「${j.label}」のボタン ${n}個にチェックを付けました。いらないものはタブを開いて外せます`)
+      }
+      paint()
+    }
+    const jobRow = h('section', { class: 'mk-jobs' },
+      h('h3', { class: 'mk-head', text: '👤 職種(いくつでも)' }),
+      h('p', { class: 'hint', text: '選ぶと、その職種でよく使うボタンにチェックが付きます。選ばなくても進めます。' }),
+      h('div', { class: 'mk-jobrow' }, ...JOBS.map(j => h('button', { type: 'button', class: 'mk-job', 'aria-pressed': jobs.includes(j.key) ? 'true' : 'false', onclick: () => toggleJob(j) },
+        h('span', { 'aria-hidden': 'true', text: j.icon }), h('span', { text: j.label })))))
+    return [jobRow,
+      h('h3', { class: 'mk-head', text: '🔘 ボタン' }),
+      h('p', { class: 'hint', text: 'タブを押すと、そのタブに入れられるボタンが全部出ます。使うボタンにチェックを付けてください。' }),
       search, count, listBox,
       h('section', { class: 'mvx-welcome' }, h('h3', { text: '＋ 一覧にないボタンを作る' }),
         h('div', { class: 'mk-new' }, newName, newTab, h('button', { type: 'button', class: 'secondary-btn', text: '足す', onclick: addNew })))]
@@ -2782,7 +2837,9 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
     if (!tabs.some(t => !t.hidden)) delete tabs[0].hidden
     await saveTabs(tabs)
     if (sel.some(b => b.tab === 'pet' || CANDIDATES.some(g => g.tab === 'pet' && g.items.some(x => x.kind === b.kind)))) { PET_TYPE = petType; await putSetting('petType', petType) }
-    await saveButtons(sel.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })), 'custom')
+    // 出社の呼び名(勤務・学校・仕事)は、あとに選んだ職種のひな形のものに
+    const lastJob = JOBS.find(z => z.key === jobs[jobs.length - 1])
+    await saveButtons(sel.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })), lastJob ? lastJob.preset : 'custom')
     try { localStorage.setItem(TAB_KEY, (visible().find(t => sel.some(b => b.tab === t.key)) || {}).key || 'flow') } catch { /* */ }
     buildButtons(); closeSheet(); render()
     showToast(`自分で作ったボタン ${sel.length}個で始めます。あとから「ボタン設定」でいつでも変えられます`)
