@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.3'
+const VERSION = '0.21.4'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -158,7 +158,7 @@ const CANDIDATES = [
     ['travel', '旅行', '🧳'], ['drinks', '飲み会', '🍻'], ['oshi', '推し活', '💖', false], ['watch', '観戦', '🏟️'], ['onsen', '温泉', '♨️']] },
   { group: '🎵 音楽・観る', items: [['jazz', 'ジャズ', '🎷'], ['rock', 'ロック', '🎸'], ['live', 'ライブ', '🎶'], ['fes', 'フェス', '🎪'], ['classic', 'クラシック', '🎻'],
     ['theater', '観劇', '🎭'], ['museum', '美術館', '🖼️'], ['zoo', '動物園', '🦁'], ['aquarium', '水族館', '🐬'], ['themepark', '遊園地', '🎢'], ['keiba', '競馬', '🏇']] },
-  { group: '🧳 おでかけ・旅', items: [['drive', 'ドライブ', '🚙'], ['touring', 'ツーリング', '🏍️'], ['cycling', 'サイクリング', '🚴'], ['camp', 'キャンプ', '⛺'],
+  { group: '🧳 おでかけ・旅', items: [['kaigai', '海外旅行', '🌏'], ['drive', 'ドライブ', '🚙'], ['touring', 'ツーリング', '🏍️'], ['cycling', 'サイクリング', '🚴'], ['camp', 'キャンプ', '⛺'],
     ['bbq', 'バーベキュー', '🍖'], ['picnic', 'ピクニック', '🧺'], ['tabearuki', '食べ歩き', '🍡'], ['jisha', '寺社めぐり', '⛩️'], ['hanami', '花見', '🌸'],
     ['momiji', '紅葉狩り', '🍁'], ['hanabi', '花火', '🎆'], ['matsuri', 'お祭り', '🏮'], ['kisei', '帰省', '🏡'], ['sauna', 'サウナ', '🧖']] },
   { group: '⛰️ 山・海・雪', items: [['hike', '登山', '⛰️'], ['fishing', '釣り', '🎣'], ['beach', '海水浴', '🏖️'], ['scuba', 'スキューバ', '🤿'], ['freedive', '素潜り', '🐠'],
