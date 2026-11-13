@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.1'
+const VERSION = '0.21.2'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -240,7 +240,7 @@ const PRESETS = [
       ...doOf('work', 'lunch', 'break', 'resume', 'read', 'tv', 'game', 'hobby', 'fitness'), ...PRESET_TAIL()] },
   { key: 'shift', icon: '🌙', label: 'シフト勤務', desc: '出勤・退勤(夜勤もそのまま続けて記録)', work: '勤務',
     make: () => DEFAULT_BUTTONS.map(b => (b.kind === 'arrive' ? { ...b, label: '出勤', icon: '⏰' } : b.kind === 'out' ? { ...b, label: '退勤', icon: '🌃' } : { ...b })) },
-  { key: 'custom', icon: '✏️', label: '自分で作る', desc: '起床・就寝・食事などだけ。あとはボタン設定で足す', work: '勤務',
+  { key: 'custom', icon: '✏️', label: '自分で作る', desc: 'タブ・ボタン・色・並びまで、全部自分で決める', work: '勤務',
     make: () => [...flowOf('wake', 'leave', 'reach', 'home', 'sleep', 'meal', 'bath'), ...DEFAULT_BUTTONS.filter(b => b.tab === 'body').map(b => ({ ...b }))] },
 ]
 let PRESET = 'office'
@@ -2552,6 +2552,211 @@ async function openPlaces() {
 
 // ---------- ボタン設定(足す・名前と絵を変える・並べ替える・消す・移動手段を聞く) ----------
 // ひな形を選ぶカード(v0.19.1)
+// ---------- 自分で作る(v0.21.2。本人「自分で作るは項目設定からいろいろ細かく設定できる仕様に。ボタンのカラーとかまで」「タブの変更も入れよう」) ----------
+// ① タブ ② ボタンを選ぶ ③ 仕上げ ④ 見本 → これで始める。はじめに(from: 'first')と、ボタン設定の「ひな形から選び直す」→ 自分で作る(from: 'settings'、いまのボタンから始める)
+function allButtonsUniverse(petType) {
+  const groups = []
+  const seen = new Set()
+  const add = (title, home, list) => {
+    const items = list.filter(b => b && !seen.has(b.kind)).map(b => { seen.add(b.kind); return { ...b, tab: home } })
+    if (items.length) groups.push({ title, home, items })
+  }
+  for (const t of BASE_TABS) add(t.label, t.key, DEFAULT_BUTTONS.filter(b => b.tab === t.key))
+  add('すること(ひな形から)', 'do', Object.values(XB))
+  for (const g of CANDIDATES) add(g.group, g.tab, candItems(g, petType).map(x => candToButton(g, x)))
+  return groups
+}
+function openBuilder({ from = 'first', onBack = null } = {}) {
+  const sheet = $('#sheet')
+  const closeSheet = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+  let tabs = (from === 'settings' ? TABS : BASE_TABS).map(t => ({ ...t }))
+  let sel = (from === 'settings' ? BUTTONS : presetOf('custom').make()).map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) }))
+  let step = 1, q = '', petType = PET_TYPE, editTab = null, pickIcon = null
+  const msg = h('p', { class: 'ed-msg', 'aria-live': 'polite' })
+  const body = h('div', { class: 'sheet-body' })
+  const title = h('h2')
+  const foot = h('div', { class: 'sheet-foot' })
+  const visible = () => tabs.filter(t => !t.hidden)
+  const tabName = (k) => (tabs.find(t => t.key === k) || {}).label || '?'
+  const has = (kind) => sel.some(b => b.kind === kind)
+  const snap = () => JSON.stringify([tabs, sel, petType])
+  const first = snap()
+  const STEPS = ['タブ', 'ボタン', '仕上げ', '見本']
+  const go = (n) => { step = n; msg.textContent = ''; paint(); body.scrollTop = 0 }
+  const homeOf = (home) => (tabs.some(t => t.key === home && !t.hidden) ? home : (visible()[0] || tabs[0]).key)
+
+  // ① タブ
+  const stepTabs = () => {
+    const own = tabs.filter(t => !BASE_TABS.some(b => b.key === t.key))
+    const out = [h('p', { class: 'hint', text: '使うタブを選び、名前と並びを決めます。自分のタブも3つまで作れます(たとえば「釣り」「仕事2」)。' })]
+    tabs.forEach((t, i) => {
+      const base = BASE_TABS.find(b => b.key === t.key)
+      const name = h('input', { class: 'input bs-name', value: t.label, maxlength: '10', placeholder: base ? base.label : 'タブの名前', 'aria-label': 'タブの名前' })
+      name.addEventListener('input', () => { t.label = name.value })
+      const use = h('input', { type: 'checkbox' }); use.checked = !t.hidden
+      use.addEventListener('change', () => {
+        if (!use.checked && visible().length <= 1) { use.checked = true; showToast('1つは使うタブを残してください'); return }
+        if (use.checked) delete t.hidden; else t.hidden = true; paint()
+      })
+      const mv = (d) => { const j = i + d; if (j < 0 || j >= tabs.length) return; [tabs[i], tabs[j]] = [tabs[j], tabs[i]]; paint() }
+      out.push(h('div', { class: 'bs-row tb-row' + (t.hidden ? ' tb-hidden' : '') },
+        h('label', { class: 'tb-use' }, use, h('span', { text: t.hidden ? '使わない' : '使う' })), name,
+        h('div', { class: 'bs-ops' },
+          h('button', { type: 'button', class: 'bs-op', 'aria-label': '上へ', text: '↑', disabled: i === 0, onclick: () => mv(-1) }),
+          h('button', { type: 'button', class: 'bs-op', 'aria-label': '下へ', text: '↓', disabled: i === tabs.length - 1, onclick: () => mv(1) }),
+          base ? null : h('button', { type: 'button', class: 'bs-op del', text: '消す', onclick: () => {
+            sel.forEach(b => { if (b.tab === t.key) b.tab = homeOf('do') }); tabs = tabs.filter(x => x !== t); paint() } }))))
+    })
+    out.push(h('button', { type: 'button', class: 'secondary-btn bs-add', disabled: own.length >= MAX_OWN_TABS, text: own.length >= MAX_OWN_TABS ? `自分のタブは ${MAX_OWN_TABS}つまでです` : '＋ 自分のタブを作る',
+      onclick: () => { tabs.push({ key: 't-' + newId().slice(0, 8), label: '' }); paint(); requestAnimationFrame(() => { const a = body.querySelectorAll('.tb-row .bs-name'); a[a.length - 1].focus() }) } }))
+    return out
+  }
+  // ② ボタンを選ぶ
+  const stepPick = () => {
+    const search = h('input', { type: 'search', class: 'input', placeholder: '🔎 探す(たとえば「カフェ」)', value: q, 'aria-label': 'ボタンを探す' })
+    const listBox = h('div')
+    const paintList = () => {
+      const groups = allButtonsUniverse(petType)
+      const word = q.trim()
+      listBox.replaceChildren(...groups.map(g => {
+        const items = word ? g.items.filter(b => b.label.includes(word)) : g.items
+        if (!items.length) return null
+        const n = g.items.filter(b => has(b.kind)).length
+        const det = h('details', { class: 'fpx-group' },
+          h('summary', {}, h('span', { text: g.title }), h('span', { class: 'fpx-tab', text: `→ ${tabName(homeOf(g.home))}` }), h('span', { class: 'fpx-cnt', text: n ? `${n}個 選択` : '' })),
+          g.home === 'pet' && !word ? petTypeRow(petType, (nt) => {
+            const old = petType; petType = nt
+            for (const b of sel) if (b.tab !== undefined && b.icon === petIcon(b.kind, old, b.icon)) b.icon = petIcon(b.kind, nt, b.icon)
+            paintList() }) : null,
+          h('div', { class: 'fp-list' }, ...items.map(b => {
+            const el = h('button', { type: 'button', class: 'fp-btn', 'aria-pressed': has(b.kind) ? 'true' : 'false' },
+              h('span', { class: 'fp-check', 'aria-hidden': 'true' }), h('span', { class: 'fp-icon', 'aria-hidden': 'true', text: b.icon }), h('span', { class: 'fp-label', text: b.label }))
+            el.onclick = () => {
+              if (has(b.kind)) sel = sel.filter(x => x.kind !== b.kind)
+              else sel.push({ ...b, tab: homeOf(g.home) })
+              paintList()
+            }
+            return el
+          })))
+        if (word || det.dataset.open === '1') det.open = true
+        det.addEventListener('toggle', () => { OPEN[g.title] = det.open })
+        if (OPEN[g.title]) det.open = true
+        return det
+      }).filter(Boolean))
+      if (!listBox.children.length) listBox.append(h('p', { class: 'hint', text: '見つかりませんでした。下の「新しいボタン」で作れます。' }))
+      count.textContent = `選んでいるボタン ${sel.length}個`
+    }
+    const count = h('p', { class: 'mk-count' })
+    search.addEventListener('input', () => { q = search.value; paintList() })
+    const newName = h('input', { class: 'input', maxlength: '12', placeholder: '新しいボタンの名前', 'aria-label': '新しいボタンの名前' })
+    const newTab = h('select', { class: 'input bs-tabsel', 'aria-label': '入れるタブ' }, ...visible().map(t => h('option', { value: t.key, text: t.label || '(名前なし)' })))
+    const addNew = () => {
+      const label = newName.value.trim()
+      if (!label) { newName.focus(); return }
+      sel.push({ kind: 'c-' + newId().slice(0, 8), label, icon: '⭐', tab: newTab.value })
+      newName.value = ''; showToast(`「${label}」を「${tabName(newTab.value)}」に足しました。絵や色は次の画面で`); paintList()
+    }
+    newName.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') addNew() })
+    paintList()
+    return [h('p', { class: 'hint', text: '使うボタンにチェックを付けます。押すと開くまとまりから選ぶか、上の欄で探してください。→ のタブに入ります(次の画面で変えられます)。' }),
+      search, count, listBox,
+      h('section', { class: 'mvx-welcome' }, h('h3', { text: '＋ 新しいボタンを作る' }),
+        h('div', { class: 'mk-new' }, newName, newTab, h('button', { type: 'button', class: 'secondary-btn', text: '足す', onclick: addNew })))]
+  }
+  // ③ 仕上げる
+  const stepFinish = () => {
+    const vt = visible()
+    if (!vt.some(t => t.key === editTab)) editTab = (vt.find(t => sel.some(b => b.tab === t.key)) || vt[0]).key
+    // 隠したタブに入っているボタンは、使うタブへ移す
+    sel.forEach(b => { if (!vt.some(t => t.key === b.tab)) b.tab = vt[0].key })
+    const out = [h('p', { class: 'hint', text: 'タブごとに、並び・名前・絵・色・動きを決めます。絵を押すと絵を選べます。' }),
+      h('div', { class: 'tabs bs-tabs', role: 'tablist' }, ...vt.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === editTab ? 'true' : 'false',
+        text: `${t.label || '(名前なし)'} ${sel.filter(b => b.tab === t.key).length}`, onclick: () => { editTab = t.key; pickIcon = null; paint() } })))]
+    const same = sel.filter(b => b.tab === editTab)
+    if (same.length > MAX_PER_TAB) out.push(h('p', { class: 'fp-warn', text: `このタブは ${same.length}個です。1つのタブは ${MAX_PER_TAB}個までなので、外すか別のタブへ移してください。` }))
+    if (!same.length) out.push(h('p', { class: 'hint', text: 'このタブにはまだボタンがありません。前の画面で選ぶか、ほかのタブから「タブ」で移せます。' }))
+    same.forEach((b, i) => {
+      const name = h('input', { class: 'input bs-name', value: b.label, maxlength: '12', 'aria-label': `${b.label}の名前` })
+      name.addEventListener('input', () => { b.label = name.value })
+      const mv = (d) => { const j = i + d; if (j < 0 || j >= same.length) return; const a = sel.indexOf(same[i]), c = sel.indexOf(same[j]); [sel[a], sel[c]] = [sel[c], sel[a]]; paint() }
+      const chk = (key, label) => { const c = h('input', { type: 'checkbox' }); c.checked = key === 'askWith' ? (b.askWith != null ? !!b.askWith : !!b.askFun) : !!b[key]; c.addEventListener('change', () => { if (c.checked) b[key] = true; else if (key === 'askWith') b.askWith = false; else delete b[key] }); return h('label', { class: 'bs-ask' }, c, label) }
+      const tabSel = h('select', { class: 'input bs-tabsel', 'aria-label': 'タブ' }, ...vt.map(t => h('option', { value: t.key, text: t.label || '(名前なし)' })))
+      tabSel.value = b.tab
+      tabSel.addEventListener('change', () => { b.tab = tabSel.value; paint(); showToast(`「${b.label}」を「${tabName(b.tab)}」へ移しました`) })
+      out.push(h('div', { class: 'bs-row' },
+        h('button', { type: 'button', class: 'bs-icon' + colorCls(b), text: b.icon, 'aria-label': `${b.label}の絵を変える`, onclick: () => { pickIcon = pickIcon === b.kind ? null : b.kind; paint() } }),
+        name,
+        h('div', { class: 'bs-ops' },
+          h('button', { type: 'button', class: 'bs-op', 'aria-label': '上へ', text: '↑', disabled: i === 0, onclick: () => mv(-1) }),
+          h('button', { type: 'button', class: 'bs-op', 'aria-label': '下へ', text: '↓', disabled: i === same.length - 1, onclick: () => mv(1) }),
+          h('button', { type: 'button', class: 'bs-op del', text: '外す', onclick: () => { const at = sel.indexOf(b); sel = sel.filter(x => x !== b); paint(); showToast(`「${b.label}」を外しました`, [{ label: '元に戻す', fn: () => { sel.splice(at, 0, b); paint() } }]) } })),
+        h('div', { class: 'bs-color', role: 'group', 'aria-label': '色' }, h('span', { class: 'bs-color-q', text: '色' }),
+          h('button', { type: 'button', class: 'bs-sw none', 'aria-pressed': colorCls(b) ? 'false' : 'true', 'aria-label': '色なし', text: '×', onclick: () => { delete b.color; paint() } }),
+          ...BTN_COLORS.map(c => h('button', { type: 'button', class: `bs-sw btn-c-${c.key}`, 'aria-pressed': b.color === c.key ? 'true' : 'false', 'aria-label': c.label, onclick: () => { b.color = c.key; paint() } }))),
+        h('details', { class: 'bs-sub mk-more' }, h('summary', { text: '動き・タブ' }),
+          h('div', { class: 'mk-checks' }, chk('span', '時間の長さを記録する'), chk('askPlace', '押したら場所を測る'), chk('askMove', '押したら移動手段を聞く'),
+            chk('askFun', '楽しかった度を付ける'), chk('askWith', 'だれとを付ける'), chk('askMood', 'ペットのご機嫌を聞く'),
+            h('label', { class: 'bs-ask' }, 'タブ ', tabSel)))))
+      if (pickIcon === b.kind) out.push(h('div', { class: 'icon-grid', role: 'group', 'aria-label': '絵を選ぶ' },
+        ...ICONS.map(ic => h('button', { type: 'button', class: 'icon-pick', 'aria-pressed': ic === b.icon ? 'true' : 'false', text: ic, onclick: () => { b.icon = ic; pickIcon = null; paint() } }))))
+    })
+    return out
+  }
+  // ④ 見本
+  let viewTab = null
+  const stepPreview = () => {
+    const vt = visible().filter(t => sel.some(b => b.tab === t.key))
+    if (!vt.some(t => t.key === viewTab)) viewTab = (vt[0] || {}).key
+    const grid = h('div', { class: 'mk-grid' }, ...sel.filter(b => b.tab === viewTab).map(b => h('div', { class: 'rec-btn' + colorCls(b) },
+      h('span', { class: 'rec-icon', 'aria-hidden': 'true', text: b.icon }), h('span', { class: 'rec-label' + (b.label.length > 5 ? ' long' : ''), text: b.label || '(名前なし)' }))))
+    const empty = visible().filter(t => !sel.some(b => b.tab === t.key)).map(t => t.label)
+    return [h('p', { class: 'hint', text: '下のボタンの欄は、こんなふうに見えます。タブを押すと切りかわります。' }),
+      h('div', { class: 'mk-phone' },
+        h('div', { class: 'tabs', role: 'tablist' }, ...vt.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': t.key === viewTab ? 'true' : 'false', text: t.label, onclick: () => { viewTab = t.key; paint() } }))),
+        grid),
+      h('p', { class: 'mk-count', text: `タブ ${vt.length}つ・ボタン ${sel.length}個` }),
+      empty.length ? h('p', { class: 'hint', text: `ボタンのないタブ(${empty.join('・')})は「使わない」にします(あとから「ボタン設定」の「🗂 タブ」で戻せます)。` }) : null,
+      h('p', { class: 'hint', text: 'あとからでも「ボタン設定」でいつでも変えられます。' })]
+  }
+  const finish = async () => {
+    tabs.forEach(t => { t.label = (t.label || '').trim() })
+    if (tabs.some(t => !t.label && !BASE_TABS.some(b => b.key === t.key))) { go(1); msg.textContent = '名前が空のタブがあります'; return false }
+    sel.forEach(b => { b.label = (b.label || '').trim() })
+    if (!sel.length) { go(2); msg.textContent = 'ボタンを1つ以上選んでください'; return false }
+    if (sel.some(b => !b.label)) { go(3); msg.textContent = '名前が空のボタンがあります'; return false }
+    const over = visible().find(t => sel.filter(b => b.tab === t.key).length > MAX_PER_TAB)
+    if (over) { editTab = over.key; go(3); msg.textContent = `「${over.label}」が ${MAX_PER_TAB}個をこえています`; return false }
+    for (const t of tabs) if (!t.hidden && !sel.some(b => b.tab === t.key)) t.hidden = true   // ボタンのないタブは使わないに
+    if (!tabs.some(t => !t.hidden)) delete tabs[0].hidden
+    await saveTabs(tabs)
+    if (sel.some(b => b.tab === 'pet' || CANDIDATES.some(g => g.tab === 'pet' && g.items.some(x => x.kind === b.kind)))) { PET_TYPE = petType; await putSetting('petType', petType) }
+    await saveButtons(sel.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })), 'custom')
+    try { localStorage.setItem(TAB_KEY, (visible().find(t => sel.some(b => b.tab === t.key)) || {}).key || 'flow') } catch { /* */ }
+    buildButtons(); closeSheet(); render()
+    showToast(`自分で作ったボタン ${sel.length}個で始めます。あとから「ボタン設定」でいつでも変えられます`)
+    return true
+  }
+  const leave = () => { closeSheet(); if (onBack) onBack() }
+  const tryClose = () => guardedClose(snap, first, finish, leave, from === 'first')
+  const OPEN = {}
+  const paint = () => {
+    title.textContent = `✏️ 自分で作る(${step}/4)`
+    const keep = body.scrollTop
+    body.replaceChildren(h('ol', { class: 'mk-steps' }, ...STEPS.map((s, i) => h('li', { class: i + 1 === step ? 'on' : i + 1 < step ? 'done' : '', text: s }))),
+      ...(step === 1 ? stepTabs() : step === 2 ? stepPick() : step === 3 ? stepFinish() : stepPreview()), msg)
+    if (step !== 2) requestAnimationFrame(() => { body.scrollTop = keep })
+    foot.replaceChildren(
+      h('button', { type: 'button', class: 'secondary-btn', text: step === 1 ? (from === 'first' ? '◀ ひな形にもどる' : '◀ やめる') : '◀ もどる', onclick: () => (step === 1 ? tryClose() : go(step - 1)) }),
+      h('button', { type: 'button', class: 'primary-btn', text: step === 4 ? `これで始める(${sel.length}個)` : '次へ ▶', onclick: () => (step === 4 ? finish() : go(step + 1)) }))
+  }
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '自分で作る' },
+    h('div', { class: 'sheet-top' }, title, h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: tryClose })),
+    body, foot))
+  paint()
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+}
+
 function presetCards(current, onPick) {
   return h('div', { class: 'pz-cards' }, ...PRESETS.map(p => h('button', { type: 'button', class: 'pz-card', 'aria-pressed': p.key === current ? 'true' : 'false', onclick: () => onPick(p) },
     h('span', { class: 'pz-icon', text: p.icon }), h('span', { class: 'pz-text' }, h('strong', { text: p.label }), h('small', { text: p.desc })))))
@@ -2592,7 +2797,7 @@ async function maybeFirstPreset() {
       h('div', { class: 'sheet-body' },
         h('p', { class: 'pz-lead', text: 'あなたの毎日に近いのは?' }),
         h('p', { class: 'hint', text: '選んだ形でボタンを並べます。次の画面で、使わないボタンを外せます。' }),
-        presetCards(null, step2),
+        presetCards(null, (p) => (p.key === 'custom' ? openBuilder({ from: 'first', onBack: () => { step1(); sheet.hidden = false; document.body.classList.add('no-scroll') } }) : step2(p))),
         h('section', { class: 'mvx-welcome' },
           h('h3', { text: '📲 前のスマホから引っ越す' }),
           h('p', { class: 'hint', text: '前のスマホで作った「引っ越し用ファイル」と合言葉があれば、記録もボタンもそのまま入ります。' }),
@@ -2818,7 +3023,9 @@ function openButtonSettings() {
   const pzView = () => {
     body.replaceChildren(h('div', { class: 'pz-back' }, h('button', { type: 'button', class: 'link-btn', text: '← ボタン設定にもどる', onclick: () => { pzOpen = false; pzPick = null; paint() } })))
     if (!pzPick) {
-      body.append(h('p', { class: 'hint', text: 'いまの暮らしに近いものを選んでください。これまでの記録は、記録したときの名前のまま残ります。' }), presetCards(PRESET, (p) => { pzPick = p; paint() }))
+      body.append(h('p', { class: 'hint', text: 'いまの暮らしに近いものを選んでください。これまでの記録は、記録したときの名前のまま残ります。' }), presetCards(PRESET, (p) => {
+      if (p.key === 'custom') { guardedClose(snapS, firstS, save, () => { close(); openBuilder({ from: 'settings' }) }); return }
+      pzPick = p; paint() }))
       return
     }
     // v0.19.9: 本人「選び直しのときもボタンを選べるように(暮らしが変わったとき)」→ はじめにと同じチェックの一覧

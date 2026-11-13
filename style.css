@@ -753,3 +753,20 @@ button, input, textarea { font: inherit; color: inherit; }
 .tb-use input { width: 22px; height: 22px; }
 .tb-hidden .bs-name { opacity: .55; }
 .tb-sub { font-size: 13px; color: var(--muted); }
+
+/* v0.21.2 自分で作る */
+.mk-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; list-style: none; margin: 0 0 12px; padding: 0; counter-reset: mk; }
+.mk-steps li { counter-increment: mk; font-size: 13px; text-align: center; padding: 6px 2px; border-radius: 8px; background: var(--bg); color: var(--muted); font-weight: 700; }
+.mk-steps li::before { content: counter(mk) " "; }
+.mk-steps li.on { background: var(--accent); color: #fff; }
+.mk-steps li.done { background: var(--btn-soft); color: var(--text); }
+.mk-count { margin: 8px 0; font-size: 14px; font-weight: 700; }
+.mk-new { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 7em) auto; gap: 6px; margin-top: 8px; }
+.mk-new .bs-tabsel { min-width: 0; width: 100%; }
+.mk-new .secondary-btn { white-space: nowrap; padding: 0 14px; }
+.mk-more { grid-column: 1 / -1; display: block; }
+.mk-more > summary { cursor: pointer; font-weight: 700; min-height: 36px; display: flex; align-items: center; }
+.mk-checks { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 4px 0 6px; }
+.mk-phone { border: 2px solid var(--line2); border-radius: 18px; padding: 10px; background: var(--surface); }
+.mk-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+.mk-grid .rec-btn { cursor: default; }
