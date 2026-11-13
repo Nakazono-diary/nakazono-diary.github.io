@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.2'
+const VERSION = '0.21.3'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -87,17 +87,17 @@ const colorCls = (b) => (b && BTN_COLORS.some(c => c.key === b.color) ? ` btn-c-
 // 時間の長さ(span: true のボタンは、押すと始まり、終わりを押すまで「続いているもの」になる)
 // 組: このボタンを押すと、続いている〇〇を終える(就寝→起床 など)
 const END_BY = { sleep: ['wake'], leave: ['reach', 'arrive', 'home'], out: ['reach', 'home'], arrive: ['out'], lunch: ['resume', 'out'], break: ['resume', 'out'],   // v0.19.6 本人「昼休みの押し忘れは退社で」
-  goout: ['back', 'home'], trip: ['reach', 'arrive', 'home', 'back'] }
+  goout: ['back', 'home'], trip: ['reach', 'arrive', 'home', 'back'], sail: ['portin', 'home'] }   // v0.21.3 出港 → 帰港
 // 長さの呼び名(就寝の長さは「睡眠」など)
-const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務', goout: '外出', trip: '移動' }
+const SPAN_NAME = { sleep: '睡眠', leave: '移動', out: '移動', arrive: '勤務', goout: '外出', trip: '移動', sail: '出漁' }
 // 記録の長さの呼び名。出社の組は押したときの呼び名(sname。v0.19.1 ひな形で「学校」「仕事」に変わるため)を使う
 const spanNameOf = (e) => (e && e.sname) || SPAN_NAME[e.kind]
 // v0.19.6 本人「出社と呼べるのは出社したときじゃないのかな」→ 出社・退社・出発(登校・下校・出勤・退勤・仕事始め)は「その瞬間」のボタン。
 // カードと左の時刻は押した時刻だけ。続いているあいだは「勤務中・〇分」、終わったら長さ(勤務・移動)は終わらせた側のカードに出す。
 // 就寝・食事・入浴・休憩・移動ボタンなど「していること」のボタンは今までどおり「〜」で長さを出す(本人「就寝は睡眠時間を計るうえでいい」)。
-const MOMENT_KINDS = new Set(['arrive', 'out', 'leave'])
+const MOMENT_KINDS = new Set(['arrive', 'out', 'leave', 'sail'])
 const isMoment = (e) => !!(e && e.span && MOMENT_KINDS.has(e.kind))
-const ONGOING_WORD = { 勤務: '勤務中', 仕事: '仕事中', 学校: '学校にいます', 移動: '移動中' }
+const ONGOING_WORD = { 勤務: '勤務中', 仕事: '仕事中', 学校: '学校にいます', 移動: '移動中', 出漁: '漁に出ています' }
 const isMoveMoment = (e) => isMoment(e) && spanNameOf(e) === '移動'   // v0.19.7: 出発・退社のあとの移動は別の帯に
 const ongoingWord = (e) => (isMoment(e) ? ONGOING_WORD[spanNameOf(e)] || `${spanNameOf(e)}中` : '続いています')
 // 昼休み・休憩の時間(勤務の実働を出すため。render で今日と前の日の分を入れる)
@@ -221,7 +221,24 @@ const XB = {   // ひな形だけで使うボタン(DEFAULT_BUTTONS にないも
   pickup: { kind: 'pickup', label: '送り迎え', icon: '🚗', span: true, askPlace: true },
   childcare: { kind: 'childcare', label: '育児', icon: '👶', span: true },   // v0.19.3 本人「家中心で忘れてはならないのが育児」
 }
-const pbtn = (kind, tab, over = {}) => ({ ...(DEFAULT_BUTTONS.find(b => b.kind === kind) || XB[kind]), tab, ...over })
+// v0.21.3 本人「第一次産業の人のためのボタンも」「あまりボタンを追加してもなんなので、最初のひな形選択で対応できるように」
+// → 候補には入れず、ひな形「農業・漁業など」で選んだ種類のボタンだけ並べる(自分で作るの一覧にも出る)
+const PB = Object.fromEntries([
+  ['field', '畑仕事', '🧑‍🌾'], ['paddy', '田んぼ', '🌾'], ['sowing', '種まき', '🌱'], ['taue', '田植え', '🌿'], ['watering', '水やり', '💧'],
+  ['kusakari', '草刈り', '🪴'], ['spray', '消毒', '🧴'], ['harvest', '収穫', '🧺'], ['senka', '選果', '🍊', false], ['shukka', '出荷', '📦', true, false],
+  ['chokubai', '直売所', '🏪'], ['patrol', '見回り', '👀'],
+  ['sail', '出港', '⚓'], ['gyo', '漁', '🐟'], ['netcare', '網の手入れ', '🕸️'], ['portin', '帰港', '🛳️', true, false], ['mizuage', '水揚げ', '🦀'],
+  ['seri', 'せり', '🔔'], ['boatcare', '船の整備', '🔧'], ['yoshoku', '養殖の世話', '🦪'],
+  ['feeding', 'えさやり', '🌾'], ['milking', '搾乳', '🥛'], ['barnclean', '畜舎のそうじ', '🧹'], ['graze', '放牧', '🐄'],
+  ['yamashigoto', '山仕事', '🌲'], ['bassai', '伐採', '🪓'], ['shokurin', '植林', '🌳'], ['shitakusa', '下草刈り', '🌿'], ['edauchi', '枝打ち', '✂️'], ['makiwari', '薪割り', '🪵'],
+].map(([kind, label, icon, place, span]) => [kind, { kind, label, icon, ...(span !== false ? { span: true } : {}), ...(place !== false ? { askPlace: true } : {}) }]))
+const PRIMARY = [
+  { key: 'farm', icon: '🌾', label: '農業', desc: '畑・田んぼ・収穫・出荷', items: ['field', 'paddy', 'sowing', 'taue', 'watering', 'kusakari', 'spray', 'harvest', 'senka', 'shukka', 'chokubai', 'patrol'] },
+  { key: 'fish', icon: '🐟', label: '漁業', desc: '出港・漁・帰港・水揚げ', items: ['sail', 'gyo', 'netcare', 'portin', 'mizuage', 'seri', 'boatcare', 'yoshoku'] },
+  { key: 'stock', icon: '🐄', label: '畜産', desc: 'えさやり・搾乳・放牧', items: ['feeding', 'milking', 'barnclean', 'graze', 'patrol', 'shukka'] },
+  { key: 'forest', icon: '🌲', label: '林業', desc: '山仕事・伐採・植林', items: ['yamashigoto', 'bassai', 'shokurin', 'shitakusa', 'edauchi', 'makiwari'] },
+]
+const pbtn = (kind, tab, over = {}) => ({ ...(DEFAULT_BUTTONS.find(b => b.kind === kind) || XB[kind] || PB[kind]), tab, ...over })
 // どのひな形にも入れるもの(遊び・用事・外出・体調)
 const PRESET_TAIL = () => DEFAULT_BUTTONS.filter(b => ['play', 'errand', 'go', 'body'].includes(b.tab)).map(b => ({ ...b }))
 const flowOf = (...ks) => ks.map(k => (Array.isArray(k) ? pbtn(k[0], 'flow', k[1]) : pbtn(k, 'flow')))
@@ -240,6 +257,9 @@ const PRESETS = [
       ...doOf('work', 'lunch', 'break', 'resume', 'read', 'tv', 'game', 'hobby', 'fitness'), ...PRESET_TAIL()] },
   { key: 'shift', icon: '🌙', label: 'シフト勤務', desc: '出勤・退勤(夜勤もそのまま続けて記録)', work: '勤務',
     make: () => DEFAULT_BUTTONS.map(b => (b.kind === 'arrive' ? { ...b, label: '出勤', icon: '⏰' } : b.kind === 'out' ? { ...b, label: '退勤', icon: '🌃' } : { ...b })) },
+  { key: 'primary', icon: '🌾', label: '農業・漁業など', desc: '農業・漁業・畜産・林業から選ぶ', work: '仕事', pick: true,
+    make: (picked = PRIMARY.map(x => x.key)) => [...flowOf('wake', 'leave', 'reach', 'home', 'sleep', 'meal', 'bath', 'lunch', 'break', 'resume'),
+      ...doOf(...[...new Set(PRIMARY.filter(x => picked.includes(x.key)).flatMap(x => x.items))]), ...PRESET_TAIL()] },
   { key: 'custom', icon: '✏️', label: '自分で作る', desc: 'タブ・ボタン・色・並びまで、全部自分で決める', work: '勤務',
     make: () => [...flowOf('wake', 'leave', 'reach', 'home', 'sleep', 'meal', 'bath'), ...DEFAULT_BUTTONS.filter(b => b.tab === 'body').map(b => ({ ...b }))] },
 ]
@@ -2563,6 +2583,7 @@ function allButtonsUniverse(petType) {
   }
   for (const t of BASE_TABS) add(t.label, t.key, DEFAULT_BUTTONS.filter(b => b.tab === t.key))
   add('すること(ひな形から)', 'do', Object.values(XB))
+  for (const x of PRIMARY) add(`${x.icon} ${x.label}`, 'do', x.items.map(k => PB[k]))
   for (const g of CANDIDATES) add(g.group, g.tab, candItems(g, petType).map(x => candToButton(g, x)))
   return groups
 }
@@ -2757,6 +2778,29 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
   document.body.classList.add('no-scroll')
 }
 
+// v0.21.3: ひな形「農業・漁業など」の種類を選ぶ(いくつでも)。選んだ種類のボタンだけで次のチェックの一覧へ
+function primaryPicker(init, onNext) {
+  const on = new Set(init)
+  const go = h('button', { type: 'button', class: 'primary-btn' })
+  const warn = h('p', { class: 'fp-warn', 'aria-live': 'polite' })
+  const paint = () => {
+    const n = new Set(PRIMARY.filter(x => on.has(x.key)).flatMap(x => x.items)).size
+    go.disabled = !on.size
+    go.textContent = on.size ? `次へ ▶(${n}個のボタン)` : '1つ以上選んでください'
+    warn.textContent = n > MAX_PER_TAB ? `「すること」に入るのは ${MAX_PER_TAB}個までです。次の画面でいくつか外してください` : ''
+  }
+  go.onclick = () => onNext(PRIMARY.filter(x => on.has(x.key)).map(x => x.key))
+  const cards = h('div', { class: 'pz-cards' }, ...PRIMARY.map(x => {
+    const el = h('button', { type: 'button', class: 'pz-card pr-card', 'aria-pressed': on.has(x.key) ? 'true' : 'false' },
+      h('span', { class: 'fp-check', 'aria-hidden': 'true' }), h('span', { class: 'pz-icon', text: x.icon }), h('span', { class: 'pz-text' }, h('strong', { text: x.label }), h('small', { text: x.desc })))
+    el.onclick = () => { if (on.has(x.key)) on.delete(x.key); else on.add(x.key); el.setAttribute('aria-pressed', on.has(x.key) ? 'true' : 'false'); paint() }
+    return el
+  }))
+  paint()
+  return { body: [h('p', { class: 'pz-lead', text: 'どんなお仕事ですか?' }), h('p', { class: 'hint', text: 'いくつでも選べます。選んだもののボタンが「すること」に並びます。' }), cards, warn], go }
+}
+// 種類を決めたひな形(make がその種類のボタンだけを作る)
+const primaryPreset = (p, picked) => ({ ...p, picked, make: () => p.make(picked) })
 function presetCards(current, onPick) {
   return h('div', { class: 'pz-cards' }, ...PRESETS.map(p => h('button', { type: 'button', class: 'pz-card', 'aria-pressed': p.key === current ? 'true' : 'false', onclick: () => onPick(p) },
     h('span', { class: 'pz-icon', text: p.icon }), h('span', { class: 'pz-text' }, h('strong', { text: p.label }), h('small', { text: p.desc })))))
@@ -2797,11 +2841,19 @@ async function maybeFirstPreset() {
       h('div', { class: 'sheet-body' },
         h('p', { class: 'pz-lead', text: 'あなたの毎日に近いのは?' }),
         h('p', { class: 'hint', text: '選んだ形でボタンを並べます。次の画面で、使わないボタンを外せます。' }),
-        presetCards(null, (p) => (p.key === 'custom' ? openBuilder({ from: 'first', onBack: () => { step1(); sheet.hidden = false; document.body.classList.add('no-scroll') } }) : step2(p))),
+        presetCards(null, (p) => (p.key === 'custom' ? openBuilder({ from: 'first', onBack: () => { step1(); sheet.hidden = false; document.body.classList.add('no-scroll') } }) : p.pick ? stepPick(p) : step2(p))),
         h('section', { class: 'mvx-welcome' },
           h('h3', { text: '📲 前のスマホから引っ越す' }),
           h('p', { class: 'hint', text: '前のスマホで作った「引っ越し用ファイル」と合言葉があれば、記録もボタンもそのまま入ります。' }),
           moveImportBox()))))
+  }
+  // 1.5 v0.21.3: 農業・漁業など → 種類を選ぶ
+  const stepPick = (p, init = []) => {
+    const pk = primaryPicker(init, (picked) => step2(primaryPreset(p, picked)))
+    sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '仕事の種類' },
+      h('div', { class: 'sheet-top' }, h('h2', { text: `${p.icon} ${p.label}` })),
+      h('div', { class: 'sheet-body' }, ...pk.body),
+      h('div', { class: 'sheet-foot' }, h('button', { type: 'button', class: 'secondary-btn', text: '◀ 選び直す', onclick: step1 }), pk.go)))
   }
   // 2. v0.19.8: ひな形のボタンを全部チェック済みで見せ、使わないものを外してもらう(本人「どのボタンを使うのか選択してもらう」)
   const step2 = (p) => {
@@ -2874,7 +2926,7 @@ async function maybeFirstPreset() {
         h('p', { class: 'fp-warn', 'aria-live': 'polite' }, count),
         ...groups),
       h('div', { class: 'sheet-foot' },
-        h('button', { type: 'button', class: 'secondary-btn', text: '◀ 選び直す', onclick: step1 }),
+        h('button', { type: 'button', class: 'secondary-btn', text: '◀ 選び直す', onclick: () => (p.picked ? stepPick(PRESETS.find(z => z.key === p.key), p.picked) : step1()) }),
         go)))
     sheet.querySelector('.sheet-body').scrollTop = 0
   }
@@ -3028,9 +3080,15 @@ function openButtonSettings() {
       pzPick = p; paint() }))
       return
     }
+    if (pzPick.pick && !pzPick.picked) {   // v0.21.3: 農業・漁業など → 種類を選ぶ
+      const pk = primaryPicker([], (picked) => { pzPick = primaryPreset(pzPick, picked); paint(); body.scrollTop = 0 })
+      body.append(...pk.body, h('div', { class: 'pz-pickgo' }, pk.go))
+      return
+    }
     // v0.19.9: 本人「選び直しのときもボタンを選べるように(暮らしが変わったとき)」→ はじめにと同じチェックの一覧
     const p = pzPick, next = p.make()
-    if (!pzOn || pzOn.key !== p.key) pzOn = { key: p.key, set: new Set(next.map(b => b.kind)) }
+    const pzKey = p.key + (p.picked ? ':' + p.picked.join(',') : '')
+    if (!pzOn || pzOn.key !== pzKey) pzOn = { key: pzKey, set: new Set(next.map(b => b.kind)) }
     const on = pzOn.set
     const replaceBtn = h('button', { type: 'button', class: 'primary-btn' })
     const addBtn = h('button', { type: 'button', class: 'secondary-btn' })
