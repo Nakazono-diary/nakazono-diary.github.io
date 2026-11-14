@@ -788,3 +788,4 @@ button, input, textarea { font: inherit; color: inherit; }
 .mk-job span:first-child { font-size: 24px; }
 .mk-job[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--btn-soft); }
 .fpx-cnt.over { color: var(--danger, #c0392b); }
+.ed-links { display: flex; flex-direction: column; gap: 6px; }

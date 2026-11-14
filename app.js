@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.7'
+const VERSION = '0.21.8'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1322,23 +1322,29 @@ async function openEditor(id, preset = {}) {
   // つながっている記録(v0.16.1 本人「時間修正したときに前の事柄の終了時間と今の事柄の開始時間を連動して」)
   //   前: この記録が終わらせた記録(end_by)。組がなければ、終わりがこの記録の始まりとぴったり同じ記録
   //   次: この記録を終わらせた記録(end_by)。組がなければ、始まりがこの記録の終わりとぴったり同じ記録
-  const link = { prev: [], next: [] }
+  const link = { prev: [], next: [], pairedPrev: false, pairedNext: false }
   if (editing) {
     const all = (await allEntries()).filter(x => x.id !== editing.id)
     const m16 = (v) => (v || '').slice(0, 16)
     link.prev = all.filter(x => x.end && x.end_by === editing.id)
-    if (!link.prev.length) link.prev = all.filter(x => x.end && m16(x.end) === m16(editing.at))
+    if (link.prev.length) link.pairedPrev = true
+    else link.prev = all.filter(x => x.end && m16(x.end) === m16(editing.at))
     if (editing.end) {
       const y = editing.end_by ? all.find(x => x.id === editing.end_by) : null
       link.next = y ? [y] : all.filter(x => m16(x.at) === m16(editing.end))
+      if (y) link.pairedNext = true
     }
   }
   const nameOf = (x) => spanNameOf(x) || x.label
-  const linkChk = h('input', { type: 'checkbox', checked: true })
+  // v0.21.8 本人「入浴と就寝がひっついて離れない。入浴はつぎの関連薄いからデフォルトでチェックなしのほうが」
+  // → 前・次それぞれにチェック。組(就寝→起床・出社→退社など)でつながっているときだけ最初からオン、時刻がたまたま同じだけのときはオフ
+  const prevChk = h('input', { type: 'checkbox' }); prevChk.checked = link.pairedPrev
+  const nextChk = h('input', { type: 'checkbox' }); nextChk.checked = link.pairedNext
   const linkBox = (link.prev.length || link.next.length)
-    ? h('label', { class: 'ed-link' }, linkChk, h('span', {},
-      'つながっている記録も一緒に動かす(',
-      [...link.prev.map(x => `前の「${nameOf(x)}」の終わり`), ...link.next.map(x => `次の「${x.label}」の時刻`)].join('・'), ')'))
+    ? h('div', { class: 'ed-links' },
+      h('span', { class: 'ed-label', text: 'つながっている記録も一緒に動かす' }),
+      link.prev.length ? h('label', { class: 'ed-link' }, prevChk, h('span', { text: link.prev.map(x => `前の「${nameOf(x)}」の終わり`).join('・') + (link.pairedPrev ? '' : '(時刻が同じだけ)') })) : null,
+      link.next.length ? h('label', { class: 'ed-link' }, nextChk, h('span', { text: link.next.map(x => `次の「${x.label}」の時刻`).join('・') + (link.pairedNext ? '' : '(時刻が同じだけ)') })) : null)
     : null
 
   // 種類
@@ -1510,7 +1516,8 @@ async function openEditor(id, preset = {}) {
       // 直していて終わりを空にした: 長さのボタンなら「続いています」に戻る
     }
     await putEntry(e)
-    const moved = (editing && linkBox && linkChk.checked) ? await moveLinked(editing, e, link, ts) : []
+    const moved = (editing && linkBox && (prevChk.checked || nextChk.checked))
+      ? await moveLinked(editing, e, { prev: prevChk.checked ? link.prev : [], next: nextChk.checked ? link.next : [] }, ts) : []
     for (const pid of removed) await deletePhoto(pid)
     for (const aid of removedA) await deleteAudio(aid)
     if (!editing) draft.clear()
@@ -1528,7 +1535,7 @@ async function openEditor(id, preset = {}) {
     render()
   }
 
-  const snapE = () => JSON.stringify([dayIn.value, timeIn.value, endDayIn.value, endTimeIn.value, linkChk.checked, ta.value, { ...st, timeIsNow: undefined }, hf.get(), wf.get(), bowel])
+  const snapE = () => JSON.stringify([dayIn.value, timeIn.value, endDayIn.value, endTimeIn.value, prevChk.checked, nextChk.checked, ta.value, { ...st, timeIsNow: undefined }, hf.get(), wf.get(), bowel])
   const firstE = snapE()
   sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': editing ? '記録を直す' : '書く' },
     h('div', { class: 'sheet-top' },
