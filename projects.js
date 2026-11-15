@@ -38,7 +38,7 @@ export function projectPicker(value, onChange) {
   tSel.addEventListener('change', () => { fillSteps(); sSel.value = ''; emit() })
   sSel.addEventListener('change', emit)
   const note = PROJECTS.projects.length ? null
-    : h('p', { class: 'hint', text: 'まだ件名リストがありません。タスク管理の「日記用に件名一覧を書き出す」のファイルを、「バックアップ」から読み込んでください。' })
+    : h('p', { class: 'hint', text: 'まだ件名リストがありません。タスク管理の「日記用に件名一覧を書き出す」のファイルを、ここから読み込んでください。' })
   return h('div', { class: 'pj-pick' }, tSel, sSel, note)
 }
 

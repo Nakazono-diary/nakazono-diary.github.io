@@ -838,3 +838,32 @@ html.tight .bd:not(.bd-open) .bd-row { display: none; }
 html.tight .toast { flex-wrap: wrap; }
 html.tight .toast { top: calc(8px + var(--safe-t)); }
 html.tight .toast-text { flex-basis: 100%; }
+
+/* v0.21.12 ⚙ 設定の一覧・表示(文字の大きさ) */
+.top-btns { display: grid; grid-template-columns: auto auto auto; gap: 6px; }
+.top-btns #export { grid-column: auto; }
+.sm-list { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.sm-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.sm-row:last-child { border-bottom: 0; }
+.sm-row:active { background: var(--bg); }
+.sm-icon { font-size: 24px; width: 32px; text-align: center; flex: none; }
+.sm-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sm-text strong { font-size: 16px; }
+.sm-text small { font-size: 13px; color: var(--muted); }
+.sm-go { font-size: 24px; color: var(--muted); flex: none; }
+.fs-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.fs-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 72px; padding: 6px 2px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.fs-btn[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--btn-soft); }
+.fs-a { line-height: 1.1; }
+.fs-09 .fs-a { font-size: 18px; } .fs-1 .fs-a { font-size: 22px; } .fs-12 .fs-a { font-size: 27px; } .fs-14 .fs-a { font-size: 32px; }
+.fs-sample { font-size: 15px !important; color: var(--text) !important; }
+@media print { html { zoom: 1 !important; } }
+/* 日記の中だけ拡大しているとき(html.zoomed、--app-h は app.js の fitZoom) */
+html.zoomed, html.zoomed body { height: var(--app-h); }
+html.zoomed.tight { height: auto; min-height: 0; }
+html.zoomed.tight body { height: auto; min-height: var(--app-h); }
+html.zoomed.tight .dock { max-height: calc(var(--app-h) * 0.55); }
+@media (max-width: 899px) { html.zoomed:not(.tight) .dock { max-height: calc(var(--app-h) * 0.62); } }
+/* ゆったり表示では、カードの「ボタン」の札を外して、名前の幅を広く */
+html.tight .tl-tag:not(.memo) { display: none; }
+html.tight .main { flex: 1 0 auto; }

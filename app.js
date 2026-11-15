@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.11'
+const VERSION = '0.21.12'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1002,7 +1002,7 @@ function buildButtons() {
   box.replaceChildren(...list.map(b => h('button', { type: 'button', class: 'rec-btn' + colorCls(b), onclick: () => pressButton(b) },
     h('span', { class: 'rec-icon', 'aria-hidden': 'true', text: b.icon }),
     h('span', { class: 'rec-label' + (b.label.length > 5 ? ' long' : ''), text: b.label }))))
-  if (!list.length) box.append(h('p', { class: 'muted no-btn', text: 'このタブにはボタンがありません。「ボタン設定」で足せます。' }))
+  if (!list.length) box.append(h('p', { class: 'muted no-btn', text: 'このタブにはボタンがありません。「⚙ 設定」の「ボタン設定」で足せます。' }))
 }
 
 let toastTimer = null
@@ -2177,9 +2177,76 @@ function openPrint() {
   refresh()
 }
 
-function openBackup() {
+// v0.21.12 本人「バックアップに色々設定が詰め込まれてる。見えづらい」「印刷は独立させましょう」「ボタン多すぎかな?」
+// → 右上は 📊 統計・🖨 印刷・⚙ 設定 の3つ。⚙ 設定はスマホの設定画面のような一覧(押すとその画面、「◀ 設定」で一覧へ)
+// ボタン設定・場所はここから(それぞれ前からの画面を開く)
+const FONT_KEY = 'diary.fontScale'
+const FONT_SCALES = [{ key: 0.9, label: '小' }, { key: 1, label: 'ふつう' }, { key: 1.2, label: '大' }, { key: 1.4, label: '特大' }]
+function fontScale() { try { const v = Number(localStorage.getItem(FONT_KEY)); return FONT_SCALES.some(x => x.key === v) ? v : 1 } catch { return 1 } }
+// 日記の中だけの文字の大きさ(画面ぜんたいを拡大する。印刷のときは CSS で 1 に戻す)。大・特大ではゆったり表示になる
+function setFontScale(v) {
+  try { if (v === 1) localStorage.removeItem(FONT_KEY); else localStorage.setItem(FONT_KEY, String(v)) } catch { /* 覚えられなくても今は効く */ }
+  document.documentElement.style.zoom = v === 1 ? '' : String(v)
+  fitZoom()
+  checkTight()
+}
+// 拡大しているときは、画面の高さ(拡大前の数え方)を --app-h に入れて、下の欄がちゃんと画面の下に来るようにする
+function fitZoom() {
+  const z = Number(document.documentElement.style.zoom) || 1
+  document.documentElement.classList.toggle('zoomed', z !== 1)
+  document.documentElement.style.setProperty('--app-h', `${innerHeight / z}px`)
+}
+addEventListener('resize', fitZoom)
+function openSettings(view = 'menu') {
   const sheet = $('#sheet')
   const close = () => { sheet.hidden = true; sheet.replaceChildren(); document.body.classList.remove('no-scroll') }
+  const items = [
+    { key: 'buttons', icon: '🔘', label: 'ボタン設定', sub: 'ボタンを足す・変える・並べ替える・タブ', open: () => { close(); openButtonSettings() } },
+    { key: 'places', icon: '📍', label: '場所', sub: '場所の名前を登録する・直す', open: () => { close(); openPlaces() } },
+    { key: 'display', icon: '🔤', label: '表示', sub: `文字の大きさ(いま: ${FONT_SCALES.find(x => x.key === fontScale()).label})` },
+    { key: 'backup', icon: '💾', label: 'バックアップ', sub: 'ファイルに書き出す・ファイルから読み込む' },
+    { key: 'sync', icon: '☁', label: '同期', sub: 'グーグルドライブで、ほかの端末と合わせる(鍵つき)' },
+    { key: 'move', icon: '📦', label: 'スマホの引っ越し', sub: '機種変更のときの引っ越し用ファイル' },
+    { key: 'tide', icon: '🌊', label: '潮位表', sub: '気象庁の潮位表を読み込む' },
+    PJ.namesCard() ? { key: 'names', icon: '📋', label: '件名リスト', sub: 'タスク管理の件名・工程' } : null,
+    { key: 'about', icon: 'ℹ️', label: '記録はどこにある?', sub: '保存場所と、消えてしまうとき' },
+  ].filter(Boolean)
+  const cur = items.find(x => x.key === view)
+  const head = view === 'menu'
+    ? h('div', { class: 'sheet-top' }, h('h2', { text: '⚙ 設定' }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close }))
+    : h('div', { class: 'sheet-top' }, h('button', { type: 'button', class: 'link-btn', text: '◀ 設定', onclick: () => openSettings('menu') }),
+      h('h2', { text: `${cur.icon} ${cur.label}` }), h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close }))
+  const body = view === 'menu'
+    ? [h('div', { class: 'sm-list' }, ...items.map(x => h('button', { type: 'button', class: 'sm-row', onclick: () => (x.open ? x.open() : openSettings(x.key)) },
+        h('span', { class: 'sm-icon', 'aria-hidden': 'true', text: x.icon }),
+        h('span', { class: 'sm-text' }, h('strong', { text: x.label }), h('small', { text: x.sub })),
+        h('span', { class: 'sm-go', 'aria-hidden': 'true', text: '›' }))))]
+    : view === 'display' ? displayParts(() => openSettings('display'))
+    : view === 'backup' ? backupParts()
+    : view === 'sync' ? [syncCard()]
+    : view === 'move' ? [moveExportCard()]
+    : view === 'tide' ? [tideCard()]
+    : view === 'names' ? [PJ.namesCard()]
+    : [h('section', { class: 'bk-note' },
+        h('p', { text: 'この端末のブラウザの中(この住所専用の保存場所)にあります。同期を使うと、合言葉の鍵をかけたものがグーグルドライブのアプリ専用の隠しフォルダにも置かれます(Google にも中身は読めません)。同期を使わなければ、どこにも送りません。' }),
+        h('p', { text: 'ブラウザの「サイトのデータを削除」、アプリの削除、機種変更・初期化で消えます。その前に書き出してください。' }))]
+  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': view === 'menu' ? '設定' : cur.label },
+    head, h('div', { class: 'sheet-body' }, ...body)))
+  sheet.hidden = false
+  document.body.classList.add('no-scroll')
+}
+// 表示: 文字の大きさ(押すとすぐ変わる)
+function displayParts(repaint) {
+  const now = fontScale()
+  return [h('section', { class: 'bk-card' },
+    h('h3', { text: '文字の大きさ' }),
+    h('p', { text: 'この日記の中だけ大きさを変えます(スマホ全体の文字はそのまま)。大・特大では、上のボタンが「≡ メニュー」にまとまる、見やすい並びになります。' }),
+    h('div', { class: 'fs-row' }, ...FONT_SCALES.map(x => h('button', { type: 'button', class: 'fs-btn fs-' + String(x.key).replace('.', ''), 'aria-pressed': x.key === now ? 'true' : 'false',
+      onclick: () => { setFontScale(x.key); repaint() } }, h('span', { class: 'fs-a', text: 'あ' }), h('span', { text: x.label })))),
+    h('p', { class: 'fs-sample', text: '見本: 08:30 出社 ・ 睡眠 7時間35分' }))]
+}
+function openBackup() { openSettings('backup') }
+function backupParts() {
   const msg = h('div', { class: 'bk-msg', 'aria-live': 'polite' })
   const expBtn = h('button', { type: 'button', class: 'primary-btn', text: 'ファイルに書き出す' })
   expBtn.addEventListener('click', async () => {
@@ -2235,37 +2302,19 @@ function openBackup() {
     confirmBox.hidden = false
   })
 
-  sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'バックアップ' },
-    h('div', { class: 'sheet-top' }, h('h2', { text: 'バックアップ' }),
-      h('button', { type: 'button', class: 'link-btn', text: '閉じる', onclick: close })),
-    h('div', { class: 'sheet-body' },
-      h('section', { class: 'bk-card' },
-        h('h3', { text: '🖨 印刷・PDF' }),
-        h('p', { text: '期間(1日・1週間・1か月・日付を選ぶ)と形(タイムライン・日記帳・一覧表)を選んで、紙や PDF にします。' }),
-        h('button', { type: 'button', class: 'primary-btn', text: '印刷の画面を開く', onclick: openPrint })),
-      moveExportCard(),
-      h('section', { class: 'bk-card' },
-        h('h3', { text: 'ファイルに書き出す' }),
-        h('p', { text: '記録を文章・写真・録音ごと1つのファイル(.json)にします。ときどき書き出して、PC などに移しておくと安心です。' }),
-        h('p', { class: 'warn-note', text: '体調の記録や、行った場所の位置も入るので、ファイルは人に渡さないでください。' }),
-        expBtn),
-      h('section', { class: 'bk-card' },
-        h('h3', { text: 'ファイルから読み込む' }),
-        h('p', { text: '書き出したファイルから戻します。今ある記録は消さずに足します(機種変更のときなど)。' }),
-        fileIn,
-        h('label', { class: 'secondary-btn as-btn', for: 'import-in', text: 'ファイルを選ぶ' }),
-        confirmBox),
-      msg,
-      syncCard(),
-      PJ.namesCard(),
-      tideCard(),
-      h('section', { class: 'bk-note' },
-        h('h3', { text: '記録はどこにある?' }),
-        h('p', { text: 'この端末のブラウザの中(この住所専用の保存場所)にあります。同期を使うと、合言葉の鍵をかけたものがグーグルドライブのアプリ専用の隠しフォルダにも置かれます(Google にも中身は読めません)。同期を使わなければ、どこにも送りません。' }),
-        h('p', { text: 'ブラウザの「サイトのデータを削除」、アプリの削除、機種変更・初期化で消えます。その前に書き出してください。' })),
-    )))
-  sheet.hidden = false
-  document.body.classList.add('no-scroll')
+  return [
+    h('section', { class: 'bk-card' },
+      h('h3', { text: 'ファイルに書き出す' }),
+      h('p', { text: '記録を文章・写真・録音ごと1つのファイル(.json)にします。ときどき書き出して、PC などに移しておくと安心です。' }),
+      h('p', { class: 'warn-note', text: '体調の記録や、行った場所の位置も入るので、ファイルは人に渡さないでください。' }),
+      expBtn),
+    h('section', { class: 'bk-card' },
+      h('h3', { text: 'ファイルから読み込む' }),
+      h('p', { text: '書き出したファイルから戻します。今ある記録は消さずに足します(機種変更のときなど)。' }),
+      fileIn,
+      h('label', { class: 'secondary-btn as-btn', for: 'import-in', text: 'ファイルを選ぶ' }),
+      confirmBox),
+    msg]
 }
 
 // ---------- 統計(移動手段・睡眠・食事) ----------
@@ -2521,7 +2570,7 @@ async function openStats() {
           h('p', { class: 'st-line', text: `登録した場所 ${PLACES.length}か所のうち ${PLACES.filter(x => firstVisit.has(x.id)).length}か所に行きました` }),
           h('div', { class: 'stamp-grid' }, ...PLACES.map(x => { const d = firstVisit.get(x.id); return h('div', { class: 'stamp' + (d ? ' on' : '') },
             h('span', { class: 'stamp-mark', text: d ? '📍' : '・' }), h('span', { class: 'stamp-name', text: x.name }), h('small', { text: d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}〜` : 'まだ' })) })))
-          : h('p', { class: 'muted', text: '右上の「場所」で行きたい場所・よく行く場所を登録すると、行くたびにスタンプがたまります。' })),
+          : h('p', { class: 'muted', text: '「⚙ 設定」の「場所」で行きたい場所・よく行く場所を登録すると、行くたびにスタンプがたまります。' })),
       h('section', { class: 'st-card' }, h('h3', { text: '🕐 1日の円グラフ' }),
         h('div', { class: 'st-periods pie-modes', role: 'tablist' }, ...[['day', 'この日'], ['avg', '期間の平均']].map(([k, l]) => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': k === pieMode ? 'true' : 'false', text: l,
           onclick: () => { pieMode = k; paint() } }))),
@@ -3583,7 +3632,7 @@ async function runSync(report = (t) => showToast(t)) {
   if (TRY_MODE) { report('お試しモードでは同期しません(本番の記録を守るため)'); return }
   if (syncing) return
   const cfg = await syncCfg()
-  if (!cfg.clientId) { report('先に、バックアップの画面で「Google のクライアント ID」を入れてください'); openBackup(); return }
+  if (!cfg.clientId) { report('先に、⚙ 設定の「同期」で「Google のクライアント ID」を入れてください'); openSettings('sync'); return }
   if (!navigator.onLine) { report('電波がないので同期できません'); return }
   const token = S.tokenNow()
   if (!token) {
@@ -3776,6 +3825,7 @@ function isStandalone() {
 
 // ---------- 起動 ----------
 async function main() {
+  { const f = fontScale(); if (f !== 1) document.documentElement.style.zoom = String(f); fitZoom() }   // v0.21.12 日記の中だけの文字の大きさ
   if (!(await initUsers())) return
   await loadButtons()
   await PJ.load()
@@ -3784,10 +3834,9 @@ async function main() {
   initDock()
   $('#write').addEventListener('click', () => { closeMovePick(); openEditor(null) })
   $('#record').addEventListener('click', () => { closeMovePick(); openEditor(null, { kind: 'memo', record: true }) })
-  $('#btnset').addEventListener('click', () => { closeMovePick(); openButtonSettings() })
-  $('#places').addEventListener('click', () => { closeMovePick(); openPlaces() })
   $('#stats').addEventListener('click', () => { closeMovePick(); openStats() })
-  $('#export').addEventListener('click', openBackup)
+  $('#print').addEventListener('click', () => { closeMovePick(); openPrint() })
+  $('#export').addEventListener('click', () => { closeMovePick(); openSettings() })
   $('#day-prev').addEventListener('click', () => goDay(addDays(shownDay(), -1)))
   $('#day-next').addEventListener('click', () => goDay(addDays(shownDay(), 1)))
   $('#day-today').addEventListener('click', () => goDay(null))
