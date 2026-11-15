@@ -43,6 +43,8 @@ export function projectPicker(value, onChange) {
 }
 
 // タスク管理の件名リスト(kenmei-日付.json)を読み込む。読み込むたびに入れ替える
+// v0.21.12 ⚙ 設定の一覧の項目(公開版は null で出さない)
+export const NAMES_ITEM = { icon: '📋', label: '件名リスト', sub: 'タスク管理の件名・工程' }
 export function namesCard() {
   const status = h('p')
   const msg = h('p', { class: 'bk-msg', 'aria-live': 'polite' })

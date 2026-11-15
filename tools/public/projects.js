@@ -7,5 +7,6 @@ export const data = () => null
 export const projectText = (pj) => (pj && pj.title ? `🏷️ ${pj.title}${pj.step ? ` ・ ${pj.step}` : ''}` : '')
 export const projectPicker = () => null
 export const namesCard = () => null
+export const NAMES_ITEM = null
 export const otherFileMessage = () => ''
 export const syncPull = async () => ({ got: 0, note: '' })

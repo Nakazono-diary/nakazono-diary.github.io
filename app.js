@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.12'
+const VERSION = '0.21.13'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -2208,7 +2208,7 @@ function openSettings(view = 'menu') {
     { key: 'sync', icon: '☁', label: '同期', sub: 'グーグルドライブで、ほかの端末と合わせる(鍵つき)' },
     { key: 'move', icon: '📦', label: 'スマホの引っ越し', sub: '機種変更のときの引っ越し用ファイル' },
     { key: 'tide', icon: '🌊', label: '潮位表', sub: '気象庁の潮位表を読み込む' },
-    PJ.namesCard() ? { key: 'names', icon: '📋', label: '件名リスト', sub: 'タスク管理の件名・工程' } : null,
+    PJ.NAMES_ITEM ? { key: 'names', ...PJ.NAMES_ITEM } : null,
     { key: 'about', icon: 'ℹ️', label: '記録はどこにある?', sub: '保存場所と、消えてしまうとき' },
   ].filter(Boolean)
   const cur = items.find(x => x.key === view)
