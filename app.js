@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.10'
+const VERSION = '0.21.11'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -1078,9 +1078,13 @@ function backdateRow(e, ended, pressed) {
     const d = new Date(pressed); d.setHours(H, M, 0, 0)
     apply(d)
   })
-  return h('div', { class: 'bd' },
-    h('p', { class: 'mp-label', text: `押し忘れ? 本当の時刻にさかのぼる(いまは ${hm(stamp(pressed))})` }),
+  // v0.21.11 ゆったり表示では時刻のボタンをしまっておき、見出しを押すと開く
+  const bdBox = h('div', { class: 'bd' })
+  const bdHead = h('button', { type: 'button', class: 'mp-label bd-head', 'aria-expanded': 'false', text: `押し忘れ? 本当の時刻にさかのぼる(いまは ${hm(stamp(pressed))})`,
+    onclick: () => { const o = !bdBox.classList.contains('bd-open'); bdBox.classList.toggle('bd-open', o); bdHead.setAttribute('aria-expanded', o ? 'true' : 'false') } })
+  bdBox.append(bdHead,
     h('div', { class: 'bd-row' }, ...[5, 10, 15, 30, 60].map(chip), timeIn, status))
+  return bdBox
 }
 
 // ボタンを押した直後: 件名・工程や移動手段を、その場で付ける(選ぶたびに保存)
@@ -3820,18 +3824,27 @@ main().catch(err => {
   $('#error').textContent = `うまく動きませんでした: ${err && err.message ? err.message : err}`
 })
 
-// v0.21.10 本人「文字の大きさって大きくしてもちゃんと見やすくなってるかな」→ スマホの文字サイズが大きくて、
-// 上の日付の欄が画面の3割をこえるときは「ゆったり表示」(html.tight): 上の欄は記録と一緒に上へ流れ、下のボタンの欄は下に止める
+// v0.21.10 本人「文字の大きさって大きくしてもちゃんと見やすくなってるかな」→ 文字が大きいときは「ゆったり表示」(html.tight)
+// v0.21.11 本人「文字が大きくなっただけじゃ使いづらい」「(表示を最小限にするのは)全まとめで」→ ゆったり表示では
+//   できることは減らさず、一度に見せる量を減らす: 上の4つのボタンは「≡ メニュー」にまとめる・暦は1行・カードは大事な行だけ
+//   (場所・乗りかえは「直す」で見える)・下のボタンは1行3つ・押し忘れの時刻は押すと開く。上の欄は記録と一緒に流れ、下の欄は下に止める。
+// 決め方: 上の欄の高さで決めると、メニューをまとめた分だけ小さくなって行ったり来たりするので、文字の大きさそのもの(.fz-probe、
+//   ふつうは 20px)で決める。画面の幅が 360px より狭い(スマホの「表示サイズ」を大きくした)ときはその分も足す
 function checkTight() {
-  const top = $('.top')
-  if (!top) return
-  const wasTight = document.documentElement.classList.contains('tight')
+  const probe = $('.fz-probe')
+  if (!probe) return
   if (innerWidth >= 900) { document.documentElement.classList.remove('tight'); return }
-  const ratio = top.offsetHeight / innerHeight
-  // 行ったり来たりしないよう、入るのは 0.3 をこえたとき、出るのは 0.25 を切ったとき
-  const tight = wasTight ? ratio > 0.25 : ratio > 0.3
-  document.documentElement.classList.toggle('tight', tight)
+  const scale = (probe.getBoundingClientRect().height / 20) * (360 / Math.min(innerWidth, 360))
+  document.documentElement.classList.toggle('tight', scale >= 1.2)
 }
 addEventListener('resize', checkTight)
 requestAnimationFrame(checkTight)
 setTimeout(checkTight, 800)
+// ≡ メニュー(ゆったり表示のときだけ見える)
+{
+  const mb = $('#menubtn'), tb = $('#topbtns')
+  if (mb && tb) {
+    mb.addEventListener('click', () => { const open = !tb.classList.contains('open'); tb.classList.toggle('open', open); mb.setAttribute('aria-expanded', open ? 'true' : 'false') })
+    tb.addEventListener('click', (ev) => { if (ev.target.closest('button')) { tb.classList.remove('open'); mb.setAttribute('aria-expanded', 'false') } })
+  }
+}

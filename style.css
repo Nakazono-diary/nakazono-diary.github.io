@@ -812,3 +812,29 @@ html.tight .dock { position: sticky; bottom: 0; z-index: 3; max-height: 55vh; ma
 .tl-time { width: auto; min-width: 44px; white-space: nowrap; }
 .mv-leg { grid-template-columns: minmax(44px, auto) 1fr auto; }
 .bs-row { grid-template-columns: minmax(48px, auto) 1fr auto; }
+
+/* v0.21.11 ゆったり表示(文字が大きいとき): できることは減らさず、一度に見せる量を減らす */
+.fz-probe { position: absolute; left: -9999px; top: 0; font-size: 20px; line-height: 1; visibility: hidden; pointer-events: none; }
+.menu-btn { display: none; }
+.bd-head { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 0; font-family: inherit; cursor: default; }
+html.tight .menu-btn { display: block; flex: none; }
+html.tight .top-row { flex-wrap: wrap; }
+html.tight .top-btns:not(.open) { display: none; }
+html.tight .top-btns.open { flex-basis: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+html.tight .top-btns .small-btn { min-height: 48px; }
+/* 暦は1行(六曜・月と潮・祝日だけ。くわしくで全部) */
+html.tight .ky-sum > span:nth-child(2), html.tight .ky-sekki, html.tight .ky-good, html.tight .ky-what { display: none; }
+/* 記録のカードは大事な行だけ(場所・乗りかえは「直す」で見える。移動の帯はそのまま) */
+html.tight .tl-card .tl-place, html.tight .tl-card .tl-moves { display: none; }
+/* 下のボタンは1行3つ */
+html.tight .buttons { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* 押し忘れの時刻ボタンは、見出しを押すと開く */
+html.tight .bd-head { cursor: pointer; color: var(--accent); }
+html.tight .bd-head::after { content: ' ▸'; }
+html.tight .bd.bd-open .bd-head::after { content: ' ▾'; }
+html.tight .bd:not(.bd-open) .bd-row { display: none; }
+/* お知らせ: 文字が大きくても、文は1行ぶんの幅を使い、ボタンは下の行へ */
+.toast-btn { height: auto; min-height: 36px; }
+html.tight .toast { flex-wrap: wrap; }
+html.tight .toast { top: calc(8px + var(--safe-t)); }
+html.tight .toast-text { flex-basis: 100%; }

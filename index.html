@@ -23,7 +23,8 @@
     <div class="top-row">
       <div><h1 id="date">…</h1><span id="count" class="muted"></span><button type="button" id="userbtn" class="user-chip" title="使う人を切り替える・足す"></button></div>
       <span class="spacer"></span>
-      <div class="top-btns">
+      <button type="button" id="menubtn" class="small-btn menu-btn" aria-expanded="false" aria-controls="topbtns">≡ メニュー</button>
+      <div class="top-btns" id="topbtns">
         <button type="button" id="btnset" class="small-btn" title="ボタンを足す・変える・並べ替える">ボタン設定</button>
         <button type="button" id="places" class="small-btn" title="場所の名前を登録する・直す">場所</button>
         <button type="button" id="stats" class="small-btn" title="移動手段・睡眠・食事の集計">統計</button>
@@ -36,6 +37,7 @@
       <button type="button" id="day-next" class="day-btn" aria-label="次の日">次の日 ▶</button>
       <button type="button" id="day-today" class="day-btn today" hidden>今日へ</button>
     </div>
+    <span class="fz-probe" aria-hidden="true">あ</span>
   </header>
 
   <div id="ios-install" class="install" hidden role="note">
