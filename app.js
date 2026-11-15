@@ -10,7 +10,7 @@ import { DEFAULT_SYMPTOMS, bowelPicker, bowelText, fmtSec, healthForm, healthLin
 import { PORTS, koyomiCard, parseTide } from './koyomiView.js'
 import { RADII, distance, fmtDist, matchPlace, measure } from './places.js'
 
-const VERSION = '0.21.14'
+const VERSION = '0.21.15'
 
 // ボタン: 3つのタブに分ける。並び・名前・絵・移動手段を聞くかは「ボタン設定」で本人が変えられる(settings の 'buttons')。
 // kind は記録の種類の目印。いちど使ったら変えない(出社は v0.1 から 'arrive')。
@@ -2924,7 +2924,7 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
         grid),
       h('p', { class: 'mk-count', text: `タブ ${vt.length}つ・ボタン ${sel.length}個` }),
       empty.length ? h('p', { class: 'hint', text: `ボタンのないタブ(${empty.join('・')})は「使わない」にします(あとから「ボタン設定」の「🗂 タブ」で戻せます)。` }) : null,
-      h('p', { class: 'hint', text: 'あとからでも「ボタン設定」でいつでも変えられます。' })]
+      h('p', { class: 'hint', text: 'あとからでも「⚙ 設定」の「ボタン設定」でいつでも変えられます。' })]
   }
   const finish = async () => {
     tabs.forEach(t => { t.label = (t.label || '').trim() })
@@ -2943,7 +2943,7 @@ function openBuilder({ from = 'first', onBack = null } = {}) {
     await saveButtons(sel.map(b => ({ kind: b.kind, label: b.label, icon: b.icon, tab: b.tab, ...btnExtra(b) })), lastJob ? lastJob.preset : 'custom')
     try { localStorage.setItem(TAB_KEY, (visible().find(t => sel.some(b => b.tab === t.key)) || {}).key || 'flow') } catch { /* */ }
     buildButtons(); closeSheet(); render()
-    showToast(`自分で作ったボタン ${sel.length}個で始めます。あとから「ボタン設定」でいつでも変えられます`)
+    showToast(`自分で作ったボタン ${sel.length}個で始めます。あとから「⚙ 設定」の「ボタン設定」でいつでも変えられます`)
     return true
   }
   const leave = () => { closeSheet(); if (onBack) onBack() }
@@ -3096,7 +3096,7 @@ async function maybeFirstPreset() {
     }).filter(Boolean)
     if (more.length) groups.push(h('section', { class: 'fpx' },
       h('h3', { class: 'fp-tab', text: 'ほかにも使いたいものがあれば' }),
-      h('p', { class: 'hint', text: '押すと開きます。チェックしたものが、→ のタブに入ります。あとから「ボタン設定」でも足せます。' }), ...more))
+      h('p', { class: 'hint', text: '押すと開きます。チェックしたものが、→ のタブに入ります。あとから「⚙ 設定」の「ボタン設定」でも足せます。' }), ...more))
     go.onclick = async () => {
       const list = chosen()
       if (!list.length) return
@@ -3104,7 +3104,7 @@ async function maybeFirstPreset() {
       await saveButtons(list, p.key)
       buildButtons()
       close()
-      showToast(`「${p.label}」のボタン ${list.length}個で始めます。あとから「ボタン設定」でいつでも足したり変えたりできます`)
+      showToast(`「${p.label}」のボタン ${list.length}個で始めます。あとから「⚙ 設定」の「ボタン設定」でいつでも足したり変えたりできます`)
     }
     paintCount()
     sheet.replaceChildren(h('div', { class: 'sheet-inner', role: 'dialog', 'aria-modal': 'true', 'aria-label': '使うボタン' },
