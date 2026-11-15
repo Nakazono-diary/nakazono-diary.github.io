@@ -789,3 +789,26 @@ button, input, textarea { font: inherit; color: inherit; }
 .mk-job[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--btn-soft); }
 .fpx-cnt.over { color: var(--danger, #c0392b); }
 .ed-links { display: flex; flex-direction: column; gap: 6px; }
+
+/* v0.21.10 本人「文字の大きさって大きくしてもちゃんと見やすくなってるかな」→ スマホの文字サイズを大きくしても崩れないように
+   ・下の欄(移動中の帯・押した直後の欄)が画面を埋めて記録が見えなくなるので、下の欄ぜんたいに高さの上限を付け、中ですべらせる
+   ・移動手段のボタンは高さ・幅を文字に合わせて伸ばす(字が絵に重ならない)
+   ・ボタンの字は折り返さない */
+@media (max-width: 899px) {
+  .dock { max-height: 62vh; max-height: 62dvh; overflow-y: auto; overscroll-behavior: contain; }
+  .movepick { max-height: 34vh; max-height: 34dvh; overflow-y: auto; }
+}
+.move { height: auto; min-height: 54px; padding: 4px 2px; }
+.mode { width: auto; min-width: 56px; height: auto; min-height: 54px; padding: 4px 6px; }
+.move > span, .mode > span { white-space: nowrap; }
+.try-btn { height: auto; min-height: 30px; padding: 4px 10px; white-space: nowrap; }
+.og-end { height: auto; min-height: 40px; white-space: nowrap; }
+/* ゆったり表示(文字が大きいとき。app.js の checkTight) */
+html.tight, html.tight body { height: auto; min-height: 100%; }
+html.tight .top { position: static; }
+html.tight .main { flex: none; overflow: visible; }
+html.tight .dock { position: sticky; bottom: 0; z-index: 3; max-height: 55vh; max-height: 55dvh; }
+.top-btns .small-btn, .small-btn { height: auto; min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
+.tl-time { width: auto; min-width: 44px; white-space: nowrap; }
+.mv-leg { grid-template-columns: minmax(44px, auto) 1fr auto; }
+.bs-row { grid-template-columns: minmax(48px, auto) 1fr auto; }
